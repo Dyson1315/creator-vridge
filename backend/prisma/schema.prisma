@@ -1,0 +1,172 @@
+// CreatorVridge Database Schema
+// VTuber×絵師マッチングプラットフォーム
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum UserType {
+  VTUBER
+  ARTIST
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum AvailabilityStatus {
+  AVAILABLE
+  BUSY
+  UNAVAILABLE
+}
+
+enum MatchStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum Currency {
+  USD
+  JPY
+  EUR
+  KRW
+}
+
+// Core Tables
+model User {
+  id          String     @id @default(uuid())
+  email       String     @unique
+  passwordHash String
+  userType    UserType
+  status      UserStatus @default(ACTIVE)
+  emailVerified Boolean  @default(false)
+  emailVerifiedAt DateTime?
+  lastLoginAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relations
+  profile     Profile?
+  vtubetMatches Match[] @relation("VTuberMatches")
+  artistMatches Match[] @relation("ArtistMatches")
+  sentMessages Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+
+  @@map("users")
+}
+
+model Profile {
+  id              String             @id @default(uuid())
+  userId          String             @unique
+  displayName     String?
+  bio             String?
+  avatarUrl       String?
+  portfolioUrls   Json?              // Array of portfolio URLs
+  skills          Json?              // Array of skills/tags
+  priceRangeMin   Decimal?
+  priceRangeMax   Decimal?
+  availability    AvailabilityStatus @default(AVAILABLE)
+  timezone        String?
+  preferredCommStyle String?
+  experience      Int?               // Years of experience
+  rating          Decimal?            // Average rating 0.00-5.00
+  totalReviews    Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  // Relations
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model Match {
+  id            String      @id @default(uuid())
+  vtuberUserId  String
+  artistUserId  String
+  matchScore    Decimal?     // AI算出スコア 0.0000-1.0000
+  status        MatchStatus @default(PENDING)
+  description   String?     // 依頼内容
+  budget        Decimal?
+  deadline      DateTime?
+  matchedAt     DateTime    @default(now())
+  respondedAt   DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relations
+  vtuberUser    User        @relation("VTuberMatches", fields: [vtuberUserId], references: [id])
+  artistUser    User        @relation("ArtistMatches", fields: [artistUserId], references: [id])
+  transaction   Transaction?
+  messages      Message[]
+
+  @@unique([vtuberUserId, artistUserId])
+  @@map("matches")
+}
+
+model Transaction {
+  id                String            @id @default(uuid())
+  matchId           String            @unique
+  amount            Decimal
+  currency          Currency          @default(USD)
+  status            TransactionStatus @default(PENDING)
+  platformFee       Decimal
+  artistAmount      Decimal           // Amount after platform fee
+  stripePaymentIntentId String?
+  stripeChargeId    String?
+  refundAmount      Decimal?
+  escrowReleasedAt  DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Relations
+  match             Match             @relation(fields: [matchId], references: [id])
+
+  @@map("transactions")
+}
+
+model Message {
+  id          String   @id @default(uuid())
+  matchId     String
+  senderId    String
+  receiverId  String
+  content     String
+  messageType String   @default("text") // text, image, file
+  attachmentUrl String?
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  match       Match    @relation(fields: [matchId], references: [id])
+  sender      User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiver    User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+
+  @@map("messages")
+}
+
+// Indexes for performance optimization
+// These will be added as separate SQL commands or in migration files
