@@ -28,7 +28,7 @@ export default function Home() {
               <span className="text-primary-400">理想のマッチング</span>
             </h1>
             <p className="text-lg md:text-xl text-calm-600 mb-8 max-w-3xl mx-auto">
-              CreatorVridgeは、VTuber志望者と絵師を効率的にマッチングする特化型プラットフォームです。
+              CreatorVridgeは、VTuberと絵師を効率的にマッチングする特化型プラットフォームです。
               <br />
               安全で信頼性の高い環境で、理想の創造的コラボレーションを実現しましょう。
             </p>

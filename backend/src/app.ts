@@ -10,6 +10,18 @@ import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import matchRoutes from './routes/matches';
 
+// Import security middleware
+import { apiRateLimit } from './middleware/rateLimiter';
+import { 
+  securityHeaders, 
+  sanitizeRequest, 
+  bruteForceProtection,
+  pathTraversalProtection,
+  csrfProtection,
+  requestSizeLimiter
+} from './middleware/security';
+import { auditMiddleware, AuditLogger } from './utils/auditLogger';
+
 // Load environment variables
 dotenv.config();
 
@@ -26,7 +38,23 @@ try {
 
 const PORT = process.env.PORT || 3001;
 
-// Security middleware
+// Log system startup
+AuditLogger.logSystem('SERVER_START', `CreatorVridge API starting on port ${PORT}`, 'INFO', {
+  nodeEnv: process.env.NODE_ENV,
+  nodeVersion: process.version,
+  port: PORT
+});
+
+// Trust proxy for accurate IP addresses (if behind reverse proxy)
+app.set('trust proxy', 1);
+
+// Early security middleware
+app.use(bruteForceProtection);
+app.use(pathTraversalProtection);
+app.use(requestSizeLimiter(50 * 1024 * 1024)); // 50MB max request size
+app.use(securityHeaders);
+
+// Enhanced Helmet configuration
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -34,28 +62,94 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
     },
+    reportOnly: false
   },
   crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
 }));
 
-// CORS configuration
+// CORS configuration with enhanced security
+const allowedOrigins = process.env.NODE_ENV === 'production' 
+  ? process.env.ALLOWED_ORIGINS?.split(',') || ['https://creatorvridge.com']
+  : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://creatorvridge.com'] 
-    : ['http://localhost:3000'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      AuditLogger.logSecurity('CORS_VIOLATION', { 
+        ip: 'unknown', 
+        userAgent: 'unknown', 
+        originalUrl: 'unknown', 
+        method: 'unknown' 
+      } as any, 'WARN', { rejectedOrigin: origin });
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
+  maxAge: 86400 // 24 hours
 }));
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Request sanitization and CSRF protection
+app.use(sanitizeRequest);
+app.use(csrfProtection);
 
-// Logging
+// Rate limiting
+app.use(apiRateLimit);
+
+// Body parsing middleware with security limits
+app.use(express.json({ 
+  limit: process.env.MAX_JSON_SIZE || '10mb',
+  verify: (req, res, buf, encoding) => {
+    // Check for JSON bomb attacks
+    if (buf && buf.length > 0) {
+      const jsonString = buf.toString();
+      // Check for excessive nesting or repetition
+      const openBraces = (jsonString.match(/\{/g) || []).length;
+      const closeBraces = (jsonString.match(/\}/g) || []).length;
+      
+      if (openBraces > 1000 || closeBraces > 1000 || openBraces !== closeBraces) {
+        throw new Error('Potentially malicious JSON structure');
+      }
+    }
+  }
+}));
+
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: process.env.MAX_URL_ENCODED_SIZE || '10mb' 
+}));
+
+// Audit logging middleware (before routes)
+app.use(auditMiddleware);
+
+// Enhanced logging
 if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('combined'));
+  app.use(morgan('combined', {
+    stream: {
+      write: (message) => {
+        AuditLogger.logSystem('HTTP_REQUEST', message.trim(), 'INFO');
+      }
+    }
+  }));
 }
 
 // Health check endpoint

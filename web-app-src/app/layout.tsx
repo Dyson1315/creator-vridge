@@ -10,7 +10,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "CreatorVridge - VTuber×絵師マッチングプラットフォーム",
-  description: "VTuber志望者と絵師を効率的にマッチングする特化型プラットフォーム。安全で信頼性の高い環境での創造的コラボレーションを実現します。",
+  description: "VTuberと絵師をマッチングする特化型プラットフォーム。安全で信頼性の高い環境での創造的コラボレーションを実現します。",
   keywords: "VTuber, 絵師, マッチング, イラスト, キャラクターデザイン, コミッション",
 };
 

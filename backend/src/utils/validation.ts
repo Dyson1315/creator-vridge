@@ -1,24 +1,92 @@
 import Joi from 'joi';
 import { UserType } from '@prisma/client';
+import validator from 'validator';
+import xss from 'xss';
+import { Request, Response, NextFunction } from 'express';
+
+// Custom validators
+const customValidators = {
+  // Email validation with additional checks
+  email: Joi.string()
+    .custom((value, helpers) => {
+      // Normalize and validate email
+      if (!validator.isEmail(value)) {
+        return helpers.error('any.invalid');
+      }
+      // Check for disposable email domains
+      const disposableDomains = ['tempmail.org', '10minutemail.org', 'guerrillamail.com'];
+      const domain = value.split('@')[1].toLowerCase();
+      if (disposableDomains.includes(domain)) {
+        return helpers.error('any.invalid');
+      }
+      return validator.normalizeEmail(value, { 
+        gmail_remove_dots: false,
+        gmail_remove_subaddress: false 
+      });
+    })
+    .messages({
+      'any.invalid': 'Please provide a valid email address from a permanent email provider'
+    }),
+
+  // Sanitized string validator
+  sanitizedString: (min = 1, max = 255) => Joi.string()
+    .min(min)
+    .max(max)
+    .custom((value, helpers) => {
+      // Remove XSS attempts and normalize
+      const sanitized = xss(value.trim(), {
+        whiteList: {}, // No HTML tags allowed
+        stripIgnoreTag: true,
+        stripIgnoreTagBody: ['script']
+      });
+      
+      // Check for SQL injection patterns
+      const sqlPatterns = [
+        /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION)\b)/i,
+        /(\'|\"|;|--|\*|\|)/,
+        /(\bOR\b|\bAND\b).*?(\=|\>|\<)/i
+      ];
+      
+      for (const pattern of sqlPatterns) {
+        if (pattern.test(sanitized)) {
+          return helpers.error('any.invalid');
+        }
+      }
+      
+      return sanitized;
+    })
+    .messages({
+      'any.invalid': 'Invalid characters detected in input'
+    })
+};
 
 // User registration validation
 export const registerSchema = Joi.object({
-  email: Joi.string()
-    .email()
+  email: customValidators.email
     .required()
     .messages({
-      'string.email': 'Please provide a valid email address',
       'any.required': 'Email is required'
     }),
   
   password: Joi.string()
     .min(8)
+    .max(128) // Prevent DoS attacks with extremely long passwords
     .pattern(new RegExp('^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]'))
+    .custom((value, helpers) => {
+      // Check for common weak passwords
+      const weakPasswords = ['password', '12345678', 'qwerty123', 'admin123'];
+      if (weakPasswords.some(weak => value.toLowerCase().includes(weak.toLowerCase()))) {
+        return helpers.error('any.invalid');
+      }
+      return value;
+    })
     .required()
     .messages({
       'string.min': 'Password must be at least 8 characters long',
+      'string.max': 'Password cannot exceed 128 characters',
       'string.pattern.base': 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
-      'any.required': 'Password is required'
+      'any.required': 'Password is required',
+      'any.invalid': 'Password is too weak or commonly used'
     }),
   
   userType: Joi.string()
@@ -29,9 +97,7 @@ export const registerSchema = Joi.object({
       'any.required': 'User type is required'
     }),
   
-  displayName: Joi.string()
-    .min(2)
-    .max(50)
+  displayName: customValidators.sanitizedString(2, 50)
     .optional()
     .messages({
       'string.min': 'Display name must be at least 2 characters',
@@ -41,18 +107,18 @@ export const registerSchema = Joi.object({
 
 // User login validation
 export const loginSchema = Joi.object({
-  email: Joi.string()
-    .email()
+  email: customValidators.email
     .required()
     .messages({
-      'string.email': 'Please provide a valid email address',
       'any.required': 'Email is required'
     }),
   
   password: Joi.string()
+    .max(128) // Prevent DoS attacks
     .required()
     .messages({
-      'any.required': 'Password is required'
+      'any.required': 'Password is required',
+      'string.max': 'Password is too long'
     })
 });
 
@@ -104,9 +170,33 @@ export const profileUpdateSchema = Joi.object({
     .optional()
 });
 
-// Validation middleware
+// Security logging function
+const logSecurityEvent = (req: Request, eventType: string, details: any) => {
+  const logData = {
+    timestamp: new Date().toISOString(),
+    ip: req.ip || req.connection.remoteAddress,
+    userAgent: req.get('User-Agent'),
+    endpoint: req.originalUrl,
+    method: req.method,
+    eventType,
+    details,
+    headers: {
+      'x-forwarded-for': req.get('X-Forwarded-For'),
+      'x-real-ip': req.get('X-Real-IP')
+    }
+  };
+  console.warn('SECURITY_EVENT:', JSON.stringify(logData));
+};
+
+// Enhanced validation middleware with security logging
 export const validate = (schema: Joi.ObjectSchema) => {
-  return (req: any, res: any, next: any) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    // Log large payloads (potential DoS)
+    const contentLength = parseInt(req.get('content-length') || '0');
+    if (contentLength > 10000000) { // 10MB
+      logSecurityEvent(req, 'LARGE_PAYLOAD_DETECTED', { size: contentLength });
+    }
+
     const { error, value } = schema.validate(req.body, {
       abortEarly: false,
       allowUnknown: false,
@@ -114,6 +204,26 @@ export const validate = (schema: Joi.ObjectSchema) => {
     });
     
     if (error) {
+      // Log validation failures for security monitoring
+      const suspiciousPatterns = [
+        'script', 'javascript:', 'onload', 'onerror', 'eval(',
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'UNION',
+        '../', '..\\', 'etc/passwd', 'cmd.exe'
+      ];
+      
+      const errorMessages = error.details.map(detail => detail.message).join(' ');
+      const hasSuspiciousContent = suspiciousPatterns.some(pattern => 
+        errorMessages.toLowerCase().includes(pattern.toLowerCase()) ||
+        JSON.stringify(req.body).toLowerCase().includes(pattern.toLowerCase())
+      );
+      
+      if (hasSuspiciousContent) {
+        logSecurityEvent(req, 'SUSPICIOUS_INPUT_DETECTED', {
+          validationErrors: error.details.map(detail => detail.message),
+          payload: req.body
+        });
+      }
+      
       const details = error.details.map(detail => ({
         field: detail.path.join('.'),
         message: detail.message
@@ -129,4 +239,27 @@ export const validate = (schema: Joi.ObjectSchema) => {
     req.body = value;
     next();
   };
+};
+
+// Additional utility functions for security
+export const sanitizeHtml = (input: string): string => {
+  return xss(input, {
+    whiteList: {}, // No HTML allowed
+    stripIgnoreTag: true,
+    stripIgnoreTagBody: ['script', 'style']
+  });
+};
+
+export const validateFileExtension = (filename: string, allowedExtensions: string[]): boolean => {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  return ext ? allowedExtensions.includes(ext) : false;
+};
+
+export const sanitizeFilename = (filename: string): string => {
+  // Remove dangerous characters and paths
+  return filename
+    .replace(/[^a-zA-Z0-9.-]/g, '_')
+    .replace(/\.\.+/g, '.')
+    .replace(/^\.+/, '')
+    .substring(0, 255);
 };

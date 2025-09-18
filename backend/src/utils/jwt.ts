@@ -3,20 +3,37 @@ import { JWTPayload } from '../types/auth';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_ISSUER = process.env.JWT_ISSUER || 'creatorvridge-api';
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'creatorvridge-app';
+
+// Validate JWT configuration on startup
+if (JWT_SECRET === 'fallback-secret-key' && process.env.NODE_ENV === 'production') {
+  throw new Error('JWT_SECRET must be set in production environment');
+}
+
+if (JWT_SECRET.length < 32) {
+  console.warn('Warning: JWT_SECRET should be at least 32 characters long for security');
+}
 
 export const generateToken = (payload: Omit<JWTPayload, 'iat' | 'exp'>): string => {
   return jwt.sign(
     payload,
     JWT_SECRET,
-    { expiresIn: '7d' }
+    {
+      expiresIn: JWT_EXPIRES_IN,
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+      algorithm: 'HS256'
+    } as jwt.SignOptions
   );
 };
 
 export const verifyToken = (token: string): JWTPayload => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET, {
-      issuer: 'creatorvridge',
-      audience: 'creatorvridge-app'
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+      algorithms: ['HS256']
     }) as JWTPayload;
     
     return decoded;

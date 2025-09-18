@@ -5,12 +5,15 @@ import { generateToken, getTokenExpirationDate } from '../utils/jwt';
 import { validate, registerSchema, loginSchema } from '../utils/validation';
 import { authenticateToken } from '../middleware/auth';
 import { RegisterRequest, LoginRequest, AuthResponse } from '../types/auth';
+import { authRateLimit, strictRateLimit } from '../middleware/rateLimiter';
+import { SecurityMiddleware } from '../middleware/security';
+import { AuditLogger } from '../utils/auditLogger';
 
 const router = Router();
 const prisma = new PrismaClient();
 
 // Register new user
-router.post('/register', validate(registerSchema), async (req: Request, res: Response) => {
+router.post('/register', authRateLimit, validate(registerSchema), async (req: Request, res: Response) => {
   try {
     const { email, password, userType, displayName }: RegisterRequest = req.body;
 
@@ -20,6 +23,9 @@ router.post('/register', validate(registerSchema), async (req: Request, res: Res
     });
 
     if (existingUser) {
+      AuditLogger.logAuth('REGISTER_DUPLICATE_EMAIL', req, undefined, email, false, {
+        attemptedUserType: userType
+      });
       return res.status(409).json({
         error: 'User already exists',
         message: 'An account with this email already exists'
@@ -72,6 +78,12 @@ router.post('/register', validate(registerSchema), async (req: Request, res: Res
       expiresAt: expiresAt.toISOString()
     };
 
+    // Log successful registration
+    AuditLogger.logAuth('REGISTER_SUCCESS', req, user.id, user.email, true, {
+      userType: user.userType,
+      hasDisplayName: !!displayName
+    });
+
     res.status(201).json({
       message: 'User registered successfully',
       data: response
@@ -79,6 +91,9 @@ router.post('/register', validate(registerSchema), async (req: Request, res: Res
 
   } catch (error) {
     console.error('Registration error:', error);
+    AuditLogger.logAuth('REGISTER_ERROR', req, undefined, req.body.email, false, {
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
     res.status(500).json({
       error: 'Registration failed',
       message: 'An error occurred during registration'
@@ -87,7 +102,7 @@ router.post('/register', validate(registerSchema), async (req: Request, res: Res
 });
 
 // Login user
-router.post('/login', validate(loginSchema), async (req: Request, res: Response) => {
+router.post('/login', authRateLimit, validate(loginSchema), async (req: Request, res: Response) => {
   try {
     const { email, password }: LoginRequest = req.body;
 
@@ -105,6 +120,8 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
     });
 
     if (!user) {
+      AuditLogger.logAuth('LOGIN_USER_NOT_FOUND', req, undefined, email, false);
+      SecurityMiddleware.recordFailedAuth(req);
       return res.status(401).json({
         error: 'Invalid credentials',
         message: 'Email or password is incorrect'
@@ -113,6 +130,9 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
 
     // Check if user is active
     if (user.status !== 'ACTIVE') {
+      AuditLogger.logAuth('LOGIN_INACTIVE_ACCOUNT', req, user.id, user.email, false, {
+        accountStatus: user.status
+      });
       return res.status(403).json({
         error: 'Account suspended',
         message: 'Your account has been suspended or is pending verification'
@@ -123,6 +143,8 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     
     if (!isPasswordValid) {
+      AuditLogger.logAuth('LOGIN_INVALID_PASSWORD', req, user.id, user.email, false);
+      SecurityMiddleware.recordFailedAuth(req);
       return res.status(401).json({
         error: 'Invalid credentials',
         message: 'Email or password is incorrect'
@@ -155,6 +177,12 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
       expiresAt: expiresAt.toISOString()
     };
 
+    // Log successful login
+    AuditLogger.logAuth('LOGIN_SUCCESS', req, user.id, user.email, true, {
+      userType: user.userType,
+      lastLoginAt: user.lastLoginAt
+    });
+
     res.json({
       message: 'Login successful',
       data: response
@@ -162,6 +190,9 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
 
   } catch (error) {
     console.error('Login error:', error);
+    AuditLogger.logAuth('LOGIN_ERROR', req, undefined, req.body.email, false, {
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
     res.status(500).json({
       error: 'Login failed',
       message: 'An error occurred during login'
