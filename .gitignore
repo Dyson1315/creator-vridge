@@ -143,8 +143,8 @@ mkdir/
 .tmp/
 compass_artifact_*.md
 
-# Nested git repositories
-frontend/.git/
+# Nested git repositories  
+frontend/
 backend/.git/
 
 # Backup files
