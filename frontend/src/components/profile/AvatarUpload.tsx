@@ -35,25 +35,17 @@ export default function AvatarUpload({ currentAvatar, onUpload }: AvatarUploadPr
     setError(null);
 
     try {
-      // Create FormData for file upload
-      const formData = new FormData();
-      formData.append('avatar', file);
-
       // Upload file using API client
-      const response = await fetch('/api/v1/users/avatar', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('アップロードに失敗しました');
+      const response = await apiClient.uploadAvatar(file);
+      
+      if (response.data?.avatarUrl) {
+        // Convert relative URL to full URL for display
+        const fullAvatarUrl = response.data.avatarUrl.startsWith('http') 
+          ? response.data.avatarUrl 
+          : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}${response.data.avatarUrl}`;
+        
+        onUpload(fullAvatarUrl);
       }
-
-      const data = await response.json();
-      onUpload(data.avatarUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'アップロードに失敗しました');
     } finally {
@@ -70,13 +62,7 @@ export default function AvatarUpload({ currentAvatar, onUpload }: AvatarUploadPr
     setError(null);
 
     try {
-      await fetch('/api/v1/users/avatar', {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-        },
-      });
-
+      await apiClient.deleteAvatar();
       onUpload('');
     } catch (err) {
       setError('アバターの削除に失敗しました');
