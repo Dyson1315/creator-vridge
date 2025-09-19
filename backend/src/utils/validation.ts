@@ -124,50 +124,90 @@ export const loginSchema = Joi.object({
 
 // Profile update validation
 export const profileUpdateSchema = Joi.object({
-  displayName: Joi.string()
-    .min(2)
-    .max(50)
-    .optional(),
+  displayName: customValidators.sanitizedString(2, 50)
+    .optional()
+    .messages({
+      'string.min': 'Display name must be at least 2 characters',
+      'string.max': 'Display name cannot exceed 50 characters'
+    }),
   
-  bio: Joi.string()
-    .max(500)
-    .optional(),
+  bio: customValidators.sanitizedString(0, 500)
+    .allow('')
+    .optional()
+    .messages({
+      'string.max': 'Bio cannot exceed 500 characters'
+    }),
   
   skills: Joi.array()
-    .items(Joi.string().max(50))
+    .items(customValidators.sanitizedString(1, 50))
     .max(20)
-    .optional(),
+    .optional()
+    .messages({
+      'array.max': 'Cannot have more than 20 skills'
+    }),
   
   priceRangeMin: Joi.number()
-    .min(0)
-    .max(10000)
-    .optional(),
+    .min(1000)
+    .max(1000000)
+    .optional()
+    .messages({
+      'number.min': 'Minimum price must be at least ¥1,000',
+      'number.max': 'Minimum price cannot exceed ¥1,000,000'
+    }),
   
   priceRangeMax: Joi.number()
-    .min(0)
-    .max(10000)
+    .min(1000)
+    .max(1000000)
     .when('priceRangeMin', {
       is: Joi.exist(),
       then: Joi.number().greater(Joi.ref('priceRangeMin'))
     })
-    .optional(),
+    .optional()
+    .messages({
+      'number.min': 'Maximum price must be at least ¥1,000',
+      'number.max': 'Maximum price cannot exceed ¥1,000,000',
+      'number.greater': 'Maximum price must be greater than minimum price'
+    }),
+  
+  availability: Joi.string()
+    .valid('AVAILABLE', 'BUSY', 'UNAVAILABLE')
+    .optional()
+    .messages({
+      'any.only': 'Availability must be AVAILABLE, BUSY, or UNAVAILABLE'
+    }),
   
   timezone: Joi.string()
-    .optional(),
+    .max(50)
+    .optional()
+    .messages({
+      'string.max': 'Timezone cannot exceed 50 characters'
+    }),
   
-  preferredCommStyle: Joi.string()
-    .valid('friendly', 'professional', 'detailed', 'casual')
-    .optional(),
+  preferredCommStyle: customValidators.sanitizedString(0, 200)
+    .allow('')
+    .optional()
+    .messages({
+      'string.max': 'Communication style preference cannot exceed 200 characters'
+    }),
   
   experience: Joi.number()
     .min(0)
     .max(50)
-    .optional(),
+    .optional()
+    .messages({
+      'number.min': 'Experience cannot be negative',
+      'number.max': 'Experience cannot exceed 50 years'
+    }),
   
   portfolioUrls: Joi.array()
-    .items(Joi.string().uri())
+    .items(Joi.string().uri().max(500))
     .max(10)
     .optional()
+    .messages({
+      'array.max': 'Cannot have more than 10 portfolio URLs',
+      'string.uri': 'Portfolio URLs must be valid URLs',
+      'string.max': 'Portfolio URL cannot exceed 500 characters'
+    })
 });
 
 // Security logging function

@@ -248,6 +248,33 @@ class ApiClient {
   async getMatchDetails(matchId: string): Promise<ApiResponse<Match>> {
     return this.request<Match>(`/api/v1/matches/${matchId}`);
   }
+
+  // Avatar upload/delete endpoints
+  async uploadAvatar(file: File): Promise<ApiResponse<{ avatarUrl: string }>> {
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    const response = await fetch(`${this.baseURL}/api/v1/users/avatar`, {
+      method: 'POST',
+      headers: {
+        ...(this.token && { Authorization: `Bearer ${this.token}` }),
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+    }
+
+    return await response.json();
+  }
+
+  async deleteAvatar(): Promise<ApiResponse> {
+    return this.request('/api/v1/users/avatar', {
+      method: 'DELETE',
+    });
+  }
 }
 
 export const apiClient = new ApiClient();

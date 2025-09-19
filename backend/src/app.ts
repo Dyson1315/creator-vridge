@@ -175,6 +175,9 @@ app.get('/health', async (req, res) => {
   res.status(200).json(health);
 });
 
+// Static file serving for uploads
+app.use('/uploads', express.static('uploads'));
+
 // API Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);

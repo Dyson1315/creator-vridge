@@ -1,10 +1,38 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import multer from 'multer';
+import path from 'path';
 import { authenticateToken } from '../middleware/auth';
 import { validate, profileUpdateSchema } from '../utils/validation';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+// Configure multer for avatar uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/avatars/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `avatar-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only JPEG, PNG, and WebP files are allowed'));
+    }
+  }
+});
 
 // Get user profile by ID
 router.get('/:id/profile', async (req: Request, res: Response) => {
@@ -285,6 +313,87 @@ router.get('/stats', authenticateToken, async (req: Request, res: Response) => {
     res.status(500).json({
       error: 'Failed to fetch statistics',
       message: 'An error occurred while fetching user statistics'
+    });
+  }
+});
+
+// Upload avatar
+router.post('/avatar', authenticateToken, upload.single('avatar'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated'
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No file uploaded',
+        message: 'Please select an image file'
+      });
+    }
+
+    // Generate URL for the uploaded file
+    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+
+    // Update profile with new avatar URL
+    const profile = await prisma.profile.upsert({
+      where: { userId: req.user.userId },
+      update: {
+        avatarUrl,
+        updatedAt: new Date()
+      },
+      create: {
+        userId: req.user.userId,
+        avatarUrl
+      }
+    });
+
+    res.json({
+      message: 'Avatar uploaded successfully',
+      data: {
+        avatarUrl: profile.avatarUrl
+      }
+    });
+
+  } catch (error) {
+    console.error('Avatar upload error:', error);
+    res.status(500).json({
+      error: 'Avatar upload failed',
+      message: 'An error occurred while uploading your avatar'
+    });
+  }
+});
+
+// Delete avatar
+router.delete('/avatar', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated'
+      });
+    }
+
+    // Update profile to remove avatar
+    await prisma.profile.updateMany({
+      where: { userId: req.user.userId },
+      data: {
+        avatarUrl: null,
+        updatedAt: new Date()
+      }
+    });
+
+    res.json({
+      message: 'Avatar removed successfully'
+    });
+
+  } catch (error) {
+    console.error('Avatar delete error:', error);
+    res.status(500).json({
+      error: 'Avatar deletion failed',
+      message: 'An error occurred while removing your avatar'
     });
   }
 });
