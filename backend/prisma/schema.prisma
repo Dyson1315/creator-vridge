@@ -1,6 +1,3 @@
-// CreatorVridge Database Schema
-// VTuber×絵師マッチングプラットフォーム
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,7 +7,112 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Enums
+model User {
+  id               String     @id @default(uuid())
+  email            String     @unique
+  passwordHash     String
+  userType         UserType
+  status           UserStatus @default("ACTIVE")
+  emailVerified    Boolean    @default(false)
+  emailVerifiedAt  DateTime?
+  lastLoginAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  artistMatches    Match[]    @relation("ArtistMatches")
+  vtubetMatches    Match[]    @relation("VTuberMatches")
+  receivedMessages Message[]  @relation("ReceivedMessages")
+  sentMessages     Message[]  @relation("SentMessages")
+  profile          Profile?
+
+  @@map("users")
+}
+
+model Profile {
+  id                 String             @id @default(uuid())
+  userId             String             @unique
+  displayName        String?
+  bio                String?
+  avatarUrl          String?
+  portfolioUrls      Json?
+  skills             Json?
+  priceRangeMin      Decimal?
+  priceRangeMax      Decimal?
+  availability       AvailabilityStatus @default("AVAILABLE")
+  timezone           String?
+  preferredCommStyle String?
+  experience         Int?
+  rating             Decimal?
+  totalReviews       Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  avatarData         String?
+  avatarMimeType     String?
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model Match {
+  id           String       @id @default(uuid())
+  vtuberUserId String
+  artistUserId String
+  matchScore   Decimal?
+  status       MatchStatus  @default("PENDING")
+  description  String?
+  budget       Decimal?
+  deadline     DateTime?
+  matchedAt    DateTime     @default(now())
+  respondedAt  DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  artistUser   User         @relation("ArtistMatches", fields: [artistUserId], references: [id])
+  vtuberUser   User         @relation("VTuberMatches", fields: [vtuberUserId], references: [id])
+  messages     Message[]
+  transaction  Transaction?
+
+  @@unique([vtuberUserId, artistUserId])
+  @@map("matches")
+}
+
+model Transaction {
+  id                    String            @id @default(uuid())
+  matchId               String            @unique
+  amount                Decimal
+  currency              Currency          @default("USD")
+  status                TransactionStatus @default("PENDING")
+  platformFee           Decimal
+  artistAmount          Decimal
+  stripePaymentIntentId String?
+  stripeChargeId        String?
+  refundAmount          Decimal?
+  escrowReleasedAt      DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  match                 Match             @relation(fields: [matchId], references: [id])
+
+  @@map("transactions")
+}
+
+model Message {
+  id            String    @id @default(uuid())
+  matchId       String
+  senderId      String
+  receiverId    String
+  content       String
+  messageType   String    @default("text")
+  attachmentUrl String?
+  isRead        Boolean   @default(false)
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  receiver      User      @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  sender        User      @relation("SentMessages", fields: [senderId], references: [id])
+  match         Match     @relation(fields: [matchId], references: [id])
+
+  @@map("messages")
+}
+
 enum UserType {
   VTUBER
   ARTIST
@@ -52,121 +154,3 @@ enum Currency {
   EUR
   KRW
 }
-
-// Core Tables
-model User {
-  id          String     @id @default(uuid())
-  email       String     @unique
-  passwordHash String
-  userType    UserType
-  status      UserStatus @default(ACTIVE)
-  emailVerified Boolean  @default(false)
-  emailVerifiedAt DateTime?
-  lastLoginAt DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-
-  // Relations
-  profile     Profile?
-  vtubetMatches Match[] @relation("VTuberMatches")
-  artistMatches Match[] @relation("ArtistMatches")
-  sentMessages Message[] @relation("SentMessages")
-  receivedMessages Message[] @relation("ReceivedMessages")
-
-  @@map("users")
-}
-
-model Profile {
-  id              String             @id @default(uuid())
-  userId          String             @unique
-  displayName     String?
-  bio             String?
-  avatarUrl       String?
-  portfolioUrls   Json?              // Array of portfolio URLs
-  skills          Json?              // Array of skills/tags
-  priceRangeMin   Decimal?
-  priceRangeMax   Decimal?
-  availability    AvailabilityStatus @default(AVAILABLE)
-  timezone        String?
-  preferredCommStyle String?
-  experience      Int?               // Years of experience
-  rating          Decimal?            // Average rating 0.00-5.00
-  totalReviews    Int                @default(0)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-
-  // Relations
-  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("profiles")
-}
-
-model Match {
-  id            String      @id @default(uuid())
-  vtuberUserId  String
-  artistUserId  String
-  matchScore    Decimal?     // AI算出スコア 0.0000-1.0000
-  status        MatchStatus @default(PENDING)
-  description   String?     // 依頼内容
-  budget        Decimal?
-  deadline      DateTime?
-  matchedAt     DateTime    @default(now())
-  respondedAt   DateTime?
-  completedAt   DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-
-  // Relations
-  vtuberUser    User        @relation("VTuberMatches", fields: [vtuberUserId], references: [id])
-  artistUser    User        @relation("ArtistMatches", fields: [artistUserId], references: [id])
-  transaction   Transaction?
-  messages      Message[]
-
-  @@unique([vtuberUserId, artistUserId])
-  @@map("matches")
-}
-
-model Transaction {
-  id                String            @id @default(uuid())
-  matchId           String            @unique
-  amount            Decimal
-  currency          Currency          @default(USD)
-  status            TransactionStatus @default(PENDING)
-  platformFee       Decimal
-  artistAmount      Decimal           // Amount after platform fee
-  stripePaymentIntentId String?
-  stripeChargeId    String?
-  refundAmount      Decimal?
-  escrowReleasedAt  DateTime?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-
-  // Relations
-  match             Match             @relation(fields: [matchId], references: [id])
-
-  @@map("transactions")
-}
-
-model Message {
-  id          String   @id @default(uuid())
-  matchId     String
-  senderId    String
-  receiverId  String
-  content     String
-  messageType String   @default("text") // text, image, file
-  attachmentUrl String?
-  isRead      Boolean  @default(false)
-  readAt      DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  match       Match    @relation(fields: [matchId], references: [id])
-  sender      User     @relation("SentMessages", fields: [senderId], references: [id])
-  receiver    User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
-
-  @@map("messages")
-}
-
-// Indexes for performance optimization
-// These will be added as separate SQL commands or in migration files

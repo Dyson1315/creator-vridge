@@ -33,6 +33,7 @@ export default function ProfileForm({ user }: ProfileFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [avatarChanged, setAvatarChanged] = useState(false);
   const { setUser } = useAuthStore();
 
   const {
@@ -87,6 +88,7 @@ export default function ProfileForm({ user }: ProfileFormProps) {
         });
         
         setSuccess(true);
+        setAvatarChanged(false); // Reset avatar changed flag after successful update
         setTimeout(() => setSuccess(false), 3000);
       }
     } catch (err) {
@@ -105,6 +107,9 @@ export default function ProfileForm({ user }: ProfileFormProps) {
         avatarUrl,
       },
     });
+    
+    // Mark that avatar has been changed
+    setAvatarChanged(true);
   };
 
   return (
@@ -347,7 +352,7 @@ export default function ProfileForm({ user }: ProfileFormProps) {
         <Button
           type="submit"
           loading={isLoading}
-          disabled={!isDirty}
+          disabled={!isDirty && !avatarChanged}
           size="lg"
           className="px-8"
         >
