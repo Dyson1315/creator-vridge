@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Settings, MapPin, Clock, DollarSign, Star, Calendar, Award } from 'lucide-react';
+import { Settings, MapPin, Clock, DollarSign, Star, Calendar, Award, User as UserIcon } from 'lucide-react';
 import { User } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -67,12 +67,11 @@ export default function ProfileView({ user, isOwnProfile = false }: ProfileViewP
                 <h1 className="text-3xl font-bold text-calm-900 mb-2">
                   {isOwnProfile ? 'マイプロフィール' : 'プロフィール'}
                 </h1>
-                <p className="text-calm-600">
-                  {isOwnProfile 
-                    ? 'あなたのプロフィール情報を確認できます' 
-                    : `${profile?.displayName || user.email}さんのプロフィール`
-                  }
-                </p>
+                {!isOwnProfile && (
+                  <p className="text-calm-600">
+                    {`${profile?.displayName || user.email}さんのプロフィール`}
+                  </p>
+                )}
               </div>
               {isOwnProfile && (
                 <Button
@@ -109,8 +108,8 @@ export default function ProfileView({ user, isOwnProfile = false }: ProfileViewP
                           className="w-24 h-24 rounded-full object-cover border-4 border-calm-200"
                         />
                       ) : (
-                        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-400 to-secondary-400 flex items-center justify-center text-white font-bold text-2xl border-4 border-calm-200">
-                          {(profile?.displayName || user.email).charAt(0).toUpperCase()}
+                        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100 flex items-center justify-center text-calm-400 border-4 border-calm-200">
+                          <UserIcon className="w-12 h-12" />
                         </div>
                       )}
                     </div>

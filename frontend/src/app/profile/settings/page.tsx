@@ -27,9 +27,6 @@ export default function ProfileSettingsPage() {
             <h1 className="text-3xl font-bold text-calm-900 mb-2">
               プロフィール設定
             </h1>
-            <p className="text-calm-600">
-              あなたの情報を更新して、より良いマッチングを実現しましょう
-            </p>
           </div>
 
           <ProfileForm user={user} />

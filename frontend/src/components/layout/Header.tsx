@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { User as UserIcon } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { apiClient } from '@/lib/api';
 import Button from '@/components/ui/Button';
@@ -98,12 +99,12 @@ export default function Header() {
                     ) : null}
                     {/* Default avatar icon - shown when no avatar or image fails */}
                     <div 
-                      className={`w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-secondary-400 flex items-center justify-center text-white font-semibold text-sm group-hover:from-primary-500 group-hover:to-secondary-500 transition-all ${
+                      className={`w-8 h-8 rounded-full bg-gradient-to-br from-primary-100 to-secondary-100 flex items-center justify-center text-calm-400 border-2 border-calm-200 group-hover:border-primary-300 transition-all ${
                         user?.profile?.avatarUrl ? 'hidden' : 'flex'
                       }`}
                       style={{ display: user?.profile?.avatarUrl ? 'none' : 'flex' }}
                     >
-                      {(user?.profile?.displayName || user?.email || 'U').charAt(0).toUpperCase()}
+                      <UserIcon size={16} />
                     </div>
                   </div>
                   <div className="text-sm text-calm-600 hidden sm:block">
