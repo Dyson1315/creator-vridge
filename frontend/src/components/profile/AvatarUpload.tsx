@@ -39,12 +39,9 @@ export default function AvatarUpload({ currentAvatar, onUpload }: AvatarUploadPr
       const response = await apiClient.uploadAvatar(file);
       
       if (response.data?.avatarUrl) {
-        // Convert relative URL to full URL for display
-        const fullAvatarUrl = response.data.avatarUrl.startsWith('http') 
-          ? response.data.avatarUrl 
-          : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}${response.data.avatarUrl}`;
-        
-        onUpload(fullAvatarUrl);
+        // The avatar URL is now a data URI (data:image/jpeg;base64,xxx) from the database
+        // No need to convert relative URLs anymore
+        onUpload(response.data.avatarUrl);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'アップロードに失敗しました');

@@ -239,10 +239,15 @@ export class AuditLogger {
    * Get client IP address considering proxies
    */
   private static getClientIP(req: Request): string {
+    // Safety check: ensure req has the get method
+    if (!req || typeof req.get !== 'function') {
+      return req?.ip || 'unknown';
+    }
+    
     return (
       req.get('x-forwarded-for')?.split(',')[0]?.trim() ||
       req.get('x-real-ip') ||
-      req.connection.remoteAddress ||
+      req.socket?.remoteAddress ||
       req.ip ||
       'unknown'
     );
