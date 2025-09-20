@@ -81,12 +81,46 @@ export default function Header() {
           <div className="flex items-center space-x-4">
             {isAuthenticated ? (
               <div className="flex items-center space-x-4">
-                <div className="text-sm text-calm-600">
-                  <span className="font-medium">{user?.profile?.displayName || user?.email}</span>
-                  <div className="text-xs">
-                    {user?.userType === 'VTUBER' ? 'VTuber' : '絵師'}
+                {/* Profile Avatar */}
+                <Link 
+                  href="/profile" 
+                  className="flex items-center space-x-3 hover:bg-calm-50 rounded-xl px-2 py-1 transition-colors group"
+                  title={user?.profile?.displayName || user?.email || 'プロフィール'}
+                >
+                  <div className="relative">
+                    {user?.profile?.avatarUrl ? (
+                      <img
+                        src={user.profile.avatarUrl}
+                        alt={user?.profile?.displayName || user?.email || 'Profile'}
+                        className="w-8 h-8 rounded-full object-cover border-2 border-calm-200 group-hover:border-primary-300 transition-colors"
+                        onError={(e) => {
+                          // Fallback to default icon if image fails to load
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const fallback = target.nextElementSibling as HTMLElement;
+                          if (fallback) fallback.style.display = 'flex';
+                        }}
+                      />
+                    ) : null}
+                    {/* Default avatar icon - shown when no avatar or image fails */}
+                    <div 
+                      className={`w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-secondary-400 flex items-center justify-center text-white font-semibold text-sm group-hover:from-primary-500 group-hover:to-secondary-500 transition-all ${
+                        user?.profile?.avatarUrl ? 'hidden' : 'flex'
+                      }`}
+                      style={{ display: user?.profile?.avatarUrl ? 'none' : 'flex' }}
+                    >
+                      {(user?.profile?.displayName || user?.email || 'U').charAt(0).toUpperCase()}
+                    </div>
                   </div>
-                </div>
+                  <div className="text-sm text-calm-600 hidden sm:block">
+                    <span className="font-medium group-hover:text-primary-600 transition-colors">
+                      {user?.profile?.displayName || user?.email}
+                    </span>
+                    <div className="text-xs text-calm-500">
+                      {user?.userType === 'VTUBER' ? 'VTuber' : '絵師'}
+                    </div>
+                  </div>
+                </Link>
                 <Button
                   variant="ghost"
                   size="sm"
