@@ -110,12 +110,7 @@ router.post('/login', authRateLimit, validate(loginSchema), async (req: Request,
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
-        profile: {
-          select: {
-            displayName: true,
-            avatarUrl: true
-          }
-        }
+        profile: true
       }
     });
 
@@ -166,12 +161,24 @@ router.post('/login', authRateLimit, validate(loginSchema), async (req: Request,
 
     const expiresAt = getTokenExpirationDate(token);
 
+    // Generate avatar URL from database data if it exists
+    let profile = user.profile;
+    if (profile && profile.avatarData && profile.avatarMimeType) {
+      profile = {
+        ...profile,
+        avatarUrl: `data:${profile.avatarMimeType};base64,${profile.avatarData}`,
+        // Remove sensitive data from response
+        avatarData: null,
+        avatarMimeType: null
+      };
+    }
+
     const response: AuthResponse = {
       user: {
         id: user.id,
         email: user.email,
         userType: user.userType,
-        profile: user.profile || undefined
+        profile: profile || undefined
       },
       token,
       expiresAt: expiresAt.toISOString()
@@ -224,6 +231,18 @@ router.get('/me', authenticateToken, async (req: Request, res: Response) => {
       });
     }
 
+    // Generate avatar URL from database data if it exists
+    let profile = user.profile;
+    if (profile && profile.avatarData && profile.avatarMimeType) {
+      profile = {
+        ...profile,
+        avatarUrl: `data:${profile.avatarMimeType};base64,${profile.avatarData}`,
+        // Remove sensitive data from response
+        avatarData: null,
+        avatarMimeType: null
+      };
+    }
+
     res.json({
       data: {
         id: user.id,
@@ -231,7 +250,7 @@ router.get('/me', authenticateToken, async (req: Request, res: Response) => {
         userType: user.userType,
         status: user.status,
         emailVerified: user.emailVerified,
-        profile: user.profile || undefined,
+        profile: profile || undefined,
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt
       }

@@ -92,12 +92,8 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      AuditLogger.logSecurity('CORS_VIOLATION', { 
-        ip: 'unknown', 
-        userAgent: 'unknown', 
-        originalUrl: 'unknown', 
-        method: 'unknown' 
-      } as any, 'WARN', { rejectedOrigin: origin });
+      // Log CORS violation without request object to avoid errors
+      console.warn(`🚫 CORS violation: Origin ${origin} not allowed`);
       callback(new Error('Not allowed by CORS'));
     }
   },

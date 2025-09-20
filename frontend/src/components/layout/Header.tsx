@@ -52,12 +52,6 @@ export default function Header() {
                 >
                   マッチング
                 </Link>
-                <Link
-                  href="/profile"
-                  className="text-calm-600 hover:text-primary-400 transition-colors"
-                >
-                  プロフィール
-                </Link>
               </>
             ) : (
               <>

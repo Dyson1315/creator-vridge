@@ -8,19 +8,9 @@ import { validate, profileUpdateSchema } from '../utils/validation';
 const router = Router();
 const prisma = new PrismaClient();
 
-// Configure multer for avatar uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/avatars/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `avatar-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-
+// Configure multer for avatar uploads (memory storage for database saving)
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
@@ -53,6 +43,11 @@ router.get('/:id/profile', async (req: Request, res: Response) => {
       });
     }
 
+    // Generate avatar URL from database data
+    const avatarUrl = user.profile?.avatarData && user.profile?.avatarMimeType
+      ? `data:${user.profile.avatarMimeType};base64,${user.profile.avatarData}`
+      : user.profile?.avatarUrl; // Fallback to old URL format for backward compatibility
+
     // Only return public information
     const publicProfile = {
       id: user.id,
@@ -60,7 +55,7 @@ router.get('/:id/profile', async (req: Request, res: Response) => {
       profile: user.profile ? {
         displayName: user.profile.displayName,
         bio: user.profile.bio,
-        avatarUrl: user.profile.avatarUrl,
+        avatarUrl,
         skills: user.profile.skills,
         priceRangeMin: user.profile.priceRangeMin,
         priceRangeMax: user.profile.priceRangeMax,
@@ -98,11 +93,20 @@ router.put('/profile', authenticateToken, validate(profileUpdateSchema), async (
 
     const updateData = req.body;
 
+    // Get current profile to preserve avatar information
+    const currentProfile = await prisma.profile.findUnique({
+      where: { userId: req.user.userId }
+    });
+
     // Update or create profile
     const profile = await prisma.profile.upsert({
       where: { userId: req.user.userId },
       update: {
         ...updateData,
+        // Preserve existing avatar data if not included in update
+        avatarData: currentProfile?.avatarData,
+        avatarMimeType: currentProfile?.avatarMimeType,
+        avatarUrl: currentProfile?.avatarUrl,
         updatedAt: new Date()
       },
       create: {
@@ -111,9 +115,23 @@ router.put('/profile', authenticateToken, validate(profileUpdateSchema), async (
       }
     });
 
+    // Generate avatar URL from database data for response
+    const avatarUrl = profile.avatarData && profile.avatarMimeType
+      ? `data:${profile.avatarMimeType};base64,${profile.avatarData}`
+      : profile.avatarUrl;
+
+    // Return profile with proper avatar URL
+    const responseProfile = {
+      ...profile,
+      avatarUrl,
+      // Remove sensitive data from response
+      avatarData: undefined,
+      avatarMimeType: undefined
+    };
+
     res.json({
       message: 'Profile updated successfully',
-      data: profile
+      data: responseProfile
     });
 
   } catch (error) {
@@ -200,6 +218,8 @@ router.get('/search', async (req: Request, res: Response) => {
               displayName: true,
               bio: true,
               avatarUrl: true,
+              avatarData: true,
+              avatarMimeType: true,
               skills: true,
               priceRangeMin: true,
               priceRangeMax: true,
@@ -221,12 +241,31 @@ router.get('/search', async (req: Request, res: Response) => {
       prisma.user.count({ where })
     ]);
 
-    const result = users.map(user => ({
-      id: user.id,
-      userType: user.userType,
-      profile: user.profile,
-      createdAt: user.createdAt
-    }));
+    const result = users.map(user => {
+      // Generate avatar URL from database data
+      const avatarUrl = user.profile?.avatarData && user.profile?.avatarMimeType
+        ? `data:${user.profile.avatarMimeType};base64,${user.profile.avatarData}`
+        : user.profile?.avatarUrl; // Fallback to old URL format for backward compatibility
+
+      return {
+        id: user.id,
+        userType: user.userType,
+        profile: user.profile ? {
+          displayName: user.profile.displayName,
+          bio: user.profile.bio,
+          avatarUrl,
+          skills: user.profile.skills,
+          priceRangeMin: user.profile.priceRangeMin,
+          priceRangeMax: user.profile.priceRangeMax,
+          availability: user.profile.availability,
+          experience: user.profile.experience,
+          rating: user.profile.rating,
+          totalReviews: user.profile.totalReviews,
+          portfolioUrls: user.profile.portfolioUrls
+        } : null,
+        createdAt: user.createdAt
+      };
+    });
 
     res.json({
       data: result,
@@ -334,26 +373,30 @@ router.post('/avatar', authenticateToken, upload.single('avatar'), async (req: R
       });
     }
 
-    // Generate URL for the uploaded file
-    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+    // Convert file buffer to base64
+    const avatarData = req.file.buffer.toString('base64');
+    const avatarMimeType = req.file.mimetype;
 
-    // Update profile with new avatar URL
+    // Update profile with new avatar data
     const profile = await prisma.profile.upsert({
       where: { userId: req.user.userId },
       update: {
-        avatarUrl,
+        avatarData,
+        avatarMimeType,
+        avatarUrl: null, // Clear old URL-based avatar
         updatedAt: new Date()
       },
       create: {
         userId: req.user.userId,
-        avatarUrl
+        avatarData,
+        avatarMimeType
       }
     });
 
     res.json({
       message: 'Avatar uploaded successfully',
       data: {
-        avatarUrl: profile.avatarUrl
+        avatarUrl: `data:${avatarMimeType};base64,${avatarData}`
       }
     });
 
@@ -381,6 +424,8 @@ router.delete('/avatar', authenticateToken, async (req: Request, res: Response) 
       where: { userId: req.user.userId },
       data: {
         avatarUrl: null,
+        avatarData: null,
+        avatarMimeType: null,
         updatedAt: new Date()
       }
     });
