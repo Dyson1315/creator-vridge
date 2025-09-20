@@ -9,6 +9,9 @@ import { PrismaClient } from '@prisma/client';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import matchRoutes from './routes/matches';
+import artworkRoutes from './routes/artworks';
+import recommendationRoutes from './routes/recommendations';
+import contractRoutes from './routes/contracts';
 
 // Import security middleware
 import { apiRateLimit } from './middleware/rateLimiter';
@@ -178,6 +181,9 @@ app.use('/uploads', express.static('uploads'));
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/matches', matchRoutes);
+app.use('/api/v1/artworks', artworkRoutes);
+app.use('/api/v1/recommendations', recommendationRoutes);
+app.use('/api/v1/contracts', contractRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {

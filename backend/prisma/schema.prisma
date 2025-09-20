@@ -23,6 +23,11 @@ model User {
   receivedMessages Message[]  @relation("ReceivedMessages")
   sentMessages     Message[]  @relation("SentMessages")
   profile          Profile?
+  artworks         Artwork[]  @relation("ArtistArtworks")
+  userLikes        UserLike[] @relation("UserLikes")
+  recommendations  RecommendationHistory[] @relation("UserRecommendations")
+  vtuberContracts  ContractRequest[] @relation("VTuberContracts")
+  artistContracts  ContractRequest[] @relation("ArtistContracts")
 
   @@map("users")
 }
@@ -113,6 +118,122 @@ model Message {
   @@map("messages")
 }
 
+model Artwork {
+  id              String           @id @default(uuid())
+  artistUserId    String
+  title           String
+  description     String?
+  imageUrl        String
+  thumbnailUrl    String?
+  tags            Json?            // JSON array of tags
+  aiFeatureVector Json?            // AI feature vector for similarity matching
+  style           String?          // Art style category
+  category        ArtworkCategory  @default(ILLUSTRATION)
+  isPublic        Boolean          @default(true)
+  isPortfolio     Boolean          @default(false)
+  width           Int?
+  height          Int?
+  fileSize        Int?
+  mimeType        String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  artistUser      User             @relation("ArtistArtworks", fields: [artistUserId], references: [id], onDelete: Cascade)
+  userLikes       UserLike[]
+  recommendations RecommendationHistory[]
+  contractRequests ContractRequest[]
+
+  @@index([artistUserId])
+  @@index([style])
+  @@index([category])
+  @@index([isPublic])
+  @@index([createdAt])
+  @@map("artworks")
+}
+
+model UserLike {
+  id          String      @id @default(uuid())
+  userId      String      // VTuber user ID
+  artworkId   String
+  isLike      Boolean     // true = like, false = dislike
+  context     Json?       // Additional context for learning (viewing time, source, etc.)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User        @relation("UserLikes", fields: [userId], references: [id], onDelete: Cascade)
+  artwork     Artwork     @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, artworkId])
+  @@index([userId])
+  @@index([artworkId])
+  @@index([isLike])
+  @@index([createdAt])
+  @@map("user_likes")
+}
+
+model RecommendationHistory {
+  id               String    @id @default(uuid())
+  userId           String    // VTuber user ID
+  artworkId        String
+  recommendationId String    // Batch ID for a set of recommendations
+  algorithmVersion String    // Version of the recommendation algorithm
+  score            Decimal   // Recommendation confidence score
+  position         Int       // Position in the recommendation list
+  wasClicked       Boolean   @default(false)
+  wasViewed        Boolean   @default(false)
+  viewDuration     Int?      // Time spent viewing in seconds
+  clickedAt        DateTime?
+  viewedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  user             User      @relation("UserRecommendations", fields: [userId], references: [id], onDelete: Cascade)
+  artwork          Artwork   @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([artworkId])
+  @@index([recommendationId])
+  @@index([algorithmVersion])
+  @@index([wasClicked])
+  @@index([createdAt])
+  @@map("recommendation_history")
+}
+
+model ContractRequest {
+  id              String              @id @default(uuid())
+  vtuberUserId    String
+  artistUserId    String
+  artworkId       String?             // Optional: specific artwork that inspired the request
+  title           String
+  description     String
+  budgetMin       Decimal?
+  budgetMax       Decimal?
+  currency        Currency            @default(USD)
+  deadline        DateTime?
+  deliverables    Json?               // JSON array of expected deliverables
+  requirements    Json?               // JSON object with specific requirements
+  status          ContractStatus      @default(PENDING)
+  priority        ContractPriority    @default(NORMAL)
+  sentAt          DateTime            @default(now())
+  viewedAt        DateTime?
+  respondedAt     DateTime?
+  acceptedAt      DateTime?
+  rejectedAt      DateTime?
+  completedAt     DateTime?
+  rejectionReason String?
+  notes           String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  vtuberUser      User                @relation("VTuberContracts", fields: [vtuberUserId], references: [id], onDelete: Cascade)
+  artistUser      User                @relation("ArtistContracts", fields: [artistUserId], references: [id], onDelete: Cascade)
+  artwork         Artwork?            @relation(fields: [artworkId], references: [id])
+
+  @@index([vtuberUserId])
+  @@index([artistUserId])
+  @@index([artworkId])
+  @@index([status])
+  @@index([priority])
+  @@index([deadline])
+  @@index([createdAt])
+  @@map("contract_requests")
+}
+
 enum UserType {
   VTUBER
   ARTIST
@@ -153,4 +274,37 @@ enum Currency {
   JPY
   EUR
   KRW
+}
+
+enum ArtworkCategory {
+  ILLUSTRATION
+  CHARACTER_DESIGN
+  LOGO
+  BACKGROUND
+  CONCEPT_ART
+  EMOTE
+  OVERLAY
+  THUMBNAIL
+  ANIMATION
+  LIVE2D
+  VRM
+  OTHER
+}
+
+enum ContractStatus {
+  PENDING
+  VIEWED
+  IN_NEGOTIATION
+  ACCEPTED
+  REJECTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ContractPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
 }
