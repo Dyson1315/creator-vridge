@@ -23,10 +23,10 @@ router.get('/artists', authenticateToken, async (req, res) => {
     const userId = req.user!.userId;
     const { limit, includeReason } = req.query as any;
 
-    // Check if user is VTuber
-    if (req.user!.userType !== 'VTUBER') {
+    // Check if user is VTuber or AI
+    if (req.user!.userType !== 'VTUBER' && req.user!.userType !== 'AI') {
       return res.status(403).json({ 
-        error: 'Only VTuber users can get artist recommendations' 
+        error: 'Only VTuber and AI users can get artist recommendations' 
       });
     }
 
@@ -390,127 +390,76 @@ router.get('/artworks', authenticateToken, async (req, res) => {
     const userId = req.user!.userId;
     const { limit = 6, includeReason = true } = req.query as any;
 
-    // Check if user is VTuber
-    if (req.user!.userType !== 'VTUBER') {
+    // Check if user is VTuber or AI
+    if (req.user!.userType !== 'VTUBER' && req.user!.userType !== 'AI') {
       return res.status(403).json({ 
-        error: 'Only VTuber users can get artwork recommendations' 
+        error: 'Only VTuber and AI users can get artwork recommendations' 
       });
     }
 
-    // Get user's liked artworks to understand preferences
-    const userLikes = await prisma.userLike.findMany({
-      where: {
-        userId,
-        isLike: true
-      },
-      include: {
-        artwork: {
-          include: {
-            artistUser: {
-              include: {
-                profile: true
-              }
-            }
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
     let artworkRecommendations = [];
+    let algorithm = 'preference_based';
 
-    if (userLikes.length === 0) {
-      // If no likes yet, return popular artworks
-      const popularArtworks = await prisma.artwork.findMany({
-        where: {
-          isPublic: true
-        },
-        include: {
-          artistUser: {
-            include: {
-              profile: true
-            }
-          },
-          _count: {
-            select: {
-              userLikes: {
-                where: { isLike: true }
-              }
-            }
-          }
-        },
-        orderBy: {
-          userLikes: {
-            _count: 'desc'
-          }
-        },
-        take: parseInt(limit)
+    try {
+      // Try to get recommendations from AI API first
+      console.log('🤖 Attempting AI recommendation API...');
+      const aiRecommendations = await aiRecommendationClient.getArtworkRecommendations({
+        user_id: userId,
+        limit: parseInt(limit)
       });
 
-      artworkRecommendations = popularArtworks.map(artwork => ({
-        id: artwork.id,
-        title: artwork.title,
-        description: artwork.description,
-        imageUrl: artwork.imageUrl,
-        thumbnailUrl: artwork.thumbnailUrl,
-        tags: artwork.tags,
-        style: artwork.style,
-        category: artwork.category,
-        createdAt: artwork.createdAt.toISOString(),
-        likesCount: artwork._count.userLikes,
-        artist: {
-          id: artwork.artistUser.id,
-          displayName: artwork.artistUser.profile?.displayName || 'Unknown Artist',
-          avatarUrl: artwork.artistUser.profile?.avatarUrl,
-          rating: artwork.artistUser.profile?.rating
-        },
-        compatibilityScore: 0.5,
-        reason: ['popular'],
-        reasoning: includeReason ? '人気の作品です' : undefined
-      }));
+      // Check if AI API returned empty recommendations
+      if (!aiRecommendations.recommendations || aiRecommendations.recommendations.length === 0) {
+        throw new Error('AI API returned empty recommendations, falling back to internal algorithm');
+      }
 
-    } else {
-      // Analyze user preferences
-      const preferences = analyzeUserPreferences(userLikes);
-      
-      // Get artworks matching preferences
-      const preferredStyles = Array.from(preferences.styles.keys()).slice(0, 3);
-      const preferredCategories = Array.from(preferences.categories.keys()).slice(0, 3);
-      const likedArtworkIds = userLikes.map(like => like.artworkId);
-
-      const matchingArtworks = await prisma.artwork.findMany({
-        where: {
-          isPublic: true,
-          id: { notIn: likedArtworkIds }, // Exclude already liked artworks
-          OR: [
-            { style: { in: preferredStyles } },
-            { category: { in: preferredCategories as any[] } }
-          ]
-        },
-        include: {
-          artistUser: {
+      // Convert AI recommendations to our format
+      artworkRecommendations = await Promise.all(
+        aiRecommendations.recommendations.map(async (rec) => {
+          // Find the artwork in our database
+          const artwork = await prisma.artwork.findUnique({
+            where: { id: rec.artwork.id },
             include: {
-              profile: true
-            }
-          },
-          _count: {
-            select: {
-              userLikes: {
-                where: { isLike: true }
+              artistUser: {
+                include: {
+                  profile: true
+                }
+              },
+              _count: {
+                select: {
+                  userLikes: {
+                    where: { isLike: true }
+                  }
+                }
               }
             }
-          }
-        },
-        take: parseInt(limit) * 2 // Get more to allow for scoring
-      });
+          });
 
-      artworkRecommendations = matchingArtworks
-        .map(artwork => {
-          const score = calculateArtworkCompatibilityScore(artwork, preferences);
-          const reasons = generateArtworkRecommendationReasons(artwork, preferences);
-          
+          if (!artwork) {
+            // If artwork not found in our DB, create mock entry based on AI response
+            return {
+              id: rec.artwork.id,
+              title: rec.artwork.title,
+              description: '',
+              imageUrl: rec.artwork.imageUrl || '',
+              thumbnailUrl: rec.artwork.thumbnailUrl || rec.artwork.imageUrl || '',
+              tags: rec.artwork.tags || [],
+              style: rec.artwork.style || '',
+              category: rec.artwork.category,
+              createdAt: rec.artwork.createdAt,
+              likesCount: 0,
+              artist: {
+                id: rec.artwork.artistUserId,
+                displayName: 'AI推薦アーティスト',
+                avatarUrl: null,
+                rating: null
+              },
+              compatibilityScore: rec.score,
+              reason: ['ai_recommendation'],
+              reasoning: includeReason ? rec.reason : undefined
+            };
+          }
+
           return {
             id: artwork.id,
             title: artwork.title,
@@ -528,21 +477,166 @@ router.get('/artworks', authenticateToken, async (req, res) => {
               avatarUrl: artwork.artistUser.profile?.avatarUrl,
               rating: artwork.artistUser.profile?.rating
             },
-            compatibilityScore: score,
-            reason: reasons.codes,
-            reasoning: includeReason ? reasons.text : undefined
+            compatibilityScore: rec.score,
+            reason: ['ai_recommendation'],
+            reasoning: includeReason ? rec.reason : undefined
           };
         })
-        .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
-        .slice(0, parseInt(limit));
+      );
+
+      algorithm = `AI_POWERED_${aiRecommendations.algorithm}`;
+      console.log('✅ AI recommendations retrieved successfully');
+
+    } catch (aiError) {
+      console.log('⚠️ AI API failed, falling back to internal algorithm:', aiError);
+      
+      // Fallback to internal recommendation logic
+      const userLikes = await prisma.userLike.findMany({
+        where: {
+          userId,
+          isLike: true
+        },
+        include: {
+          artwork: {
+            include: {
+              artistUser: {
+                include: {
+                  profile: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      if (userLikes.length === 0) {
+        // If no likes yet, return popular artworks
+        const popularArtworks = await prisma.artwork.findMany({
+          where: {
+            isPublic: true
+          },
+          include: {
+            artistUser: {
+              include: {
+                profile: true
+              }
+            },
+            _count: {
+              select: {
+                userLikes: {
+                  where: { isLike: true }
+                }
+              }
+            }
+          },
+          orderBy: {
+            userLikes: {
+              _count: 'desc'
+            }
+          },
+          take: parseInt(limit)
+        });
+
+        artworkRecommendations = popularArtworks.map(artwork => ({
+          id: artwork.id,
+          title: artwork.title,
+          description: artwork.description,
+          imageUrl: artwork.imageUrl,
+          thumbnailUrl: artwork.thumbnailUrl,
+          tags: artwork.tags,
+          style: artwork.style,
+          category: artwork.category,
+          createdAt: artwork.createdAt.toISOString(),
+          likesCount: artwork._count.userLikes,
+          artist: {
+            id: artwork.artistUser.id,
+            displayName: artwork.artistUser.profile?.displayName || 'Unknown Artist',
+            avatarUrl: artwork.artistUser.profile?.avatarUrl,
+            rating: artwork.artistUser.profile?.rating
+          },
+          compatibilityScore: 0.5,
+          reason: ['popular'],
+          reasoning: includeReason ? '人気の作品です' : undefined
+        }));
+        algorithm = 'popular_fallback';
+
+      } else {
+        // Analyze user preferences
+        const preferences = analyzeUserPreferences(userLikes);
+        
+        // Get artworks matching preferences
+        const preferredStyles = Array.from(preferences.styles.keys()).slice(0, 3);
+        const preferredCategories = Array.from(preferences.categories.keys()).slice(0, 3);
+        const likedArtworkIds = userLikes.map(like => like.artworkId);
+
+        const matchingArtworks = await prisma.artwork.findMany({
+          where: {
+            isPublic: true,
+            id: { notIn: likedArtworkIds }, // Exclude already liked artworks
+            OR: [
+              { style: { in: preferredStyles } },
+              { category: { in: preferredCategories as any[] } }
+            ]
+          },
+          include: {
+            artistUser: {
+              include: {
+                profile: true
+              }
+            },
+            _count: {
+              select: {
+                userLikes: {
+                  where: { isLike: true }
+                }
+              }
+            }
+          },
+          take: parseInt(limit) * 2 // Get more to allow for scoring
+        });
+
+        artworkRecommendations = matchingArtworks
+          .map(artwork => {
+            const score = calculateArtworkCompatibilityScore(artwork, preferences);
+            const reasons = generateArtworkRecommendationReasons(artwork, preferences);
+            
+            return {
+              id: artwork.id,
+              title: artwork.title,
+              description: artwork.description,
+              imageUrl: artwork.imageUrl,
+              thumbnailUrl: artwork.thumbnailUrl,
+              tags: artwork.tags,
+              style: artwork.style,
+              category: artwork.category,
+              createdAt: artwork.createdAt.toISOString(),
+              likesCount: artwork._count.userLikes,
+              artist: {
+                id: artwork.artistUser.id,
+                displayName: artwork.artistUser.profile?.displayName || 'Unknown Artist',
+                avatarUrl: artwork.artistUser.profile?.avatarUrl,
+                rating: artwork.artistUser.profile?.rating
+              },
+              compatibilityScore: score,
+              reason: reasons.codes,
+              reasoning: includeReason ? reasons.text : undefined
+            };
+          })
+          .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
+          .slice(0, parseInt(limit));
+        algorithm = 'ai_enhanced_preference_based';
+      }
     }
 
-    console.log(`✅ Returning ${artworkRecommendations.length} artworks, algorithm: ${userLikes.length > 0 ? 'preference_based' : 'popular_fallback'}`);
+    console.log(`✅ Returning ${artworkRecommendations.length} artworks, algorithm: ${algorithm}`);
     
     res.json({
       recommendations: artworkRecommendations,
       total: artworkRecommendations.length,
-      algorithm: userLikes.length > 0 ? 'preference_based' : 'popular_fallback'
+      algorithm: algorithm
     });
 
   } catch (error) {
@@ -654,10 +748,10 @@ router.get('/ai/artworks', authenticateToken, async (req, res) => {
     const userId = req.user!.userId;
     const { limit, category, style, useAI = true, includeReason } = req.query as any;
 
-    // Check if user is VTuber
-    if (req.user!.userType !== 'VTUBER') {
+    // Check if user is VTuber or AI
+    if (req.user!.userType !== 'VTUBER' && req.user!.userType !== 'AI') {
       return res.status(403).json({ 
-        error: 'Only VTuber users can get AI artwork recommendations' 
+        error: 'Only VTuber and AI users can get AI artwork recommendations' 
       });
     }
 
@@ -768,10 +862,10 @@ router.get('/ai/artists', authenticateToken, async (req, res) => {
     const userId = req.user!.userId;
     const { limit, useAI = true, includeReason } = req.query as any;
 
-    // Check if user is VTuber
-    if (req.user!.userType !== 'VTUBER') {
+    // Check if user is VTuber or AI
+    if (req.user!.userType !== 'VTUBER' && req.user!.userType !== 'AI') {
       return res.status(403).json({ 
-        error: 'Only VTuber users can get AI artist recommendations' 
+        error: 'Only VTuber and AI users can get AI artist recommendations' 
       });
     }
 

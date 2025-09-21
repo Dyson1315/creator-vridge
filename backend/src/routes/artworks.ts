@@ -33,10 +33,10 @@ router.get('/recommendations', authenticateToken, async (req, res) => {
     const userId = req.user!.userId;
     const { limit, category, style } = req.query as any;
 
-    // Check if user is VTuber
-    if (req.user!.userType !== 'VTUBER') {
+    // Check if user is VTuber or AI
+    if (req.user!.userType !== 'VTUBER' && req.user!.userType !== 'AI') {
       return res.status(403).json({ 
-        error: 'Only VTuber users can get recommendations' 
+        error: 'Only VTuber and AI users can get recommendations' 
       });
     }
 
@@ -96,7 +96,7 @@ router.get('/recommendations', authenticateToken, async (req, res) => {
       orderBy: [
         { createdAt: 'desc' }
       ],
-      take: limit
+      take: parseInt(limit) || 6
     });
 
     // Format response

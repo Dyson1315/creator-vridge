@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
+import { analytics } from '@/lib/analytics';
+import { useScrollTracking } from '@/hooks/useScrollTracking';
 
 interface Artist {
   id: string;
@@ -47,6 +49,19 @@ export default function RecommendedArtworks() {
   const [useAI, setUseAI] = useState(true);
   const [algorithm, setAlgorithm] = useState<string>('');
   const { user } = useAuthStore();
+  
+  // Analytics tracking refs
+  const viewTimestamps = useRef<Map<string, number>>(new Map());
+  const hoverTimestamps = useRef<Map<string, number>>(new Map());
+  const intersectionObserver = useRef<IntersectionObserver | null>(null);
+
+  // Scroll tracking for the recommendations page
+  useScrollTracking({
+    targetType: 'recommendations_page',
+    targetId: 'artworks',
+    threshold: 25,
+    debounceMs: 1000
+  });
 
   const fetchRecommendations = async () => {
     if (!user || user.userType !== 'VTUBER') return;
@@ -73,6 +88,9 @@ export default function RecommendedArtworks() {
     if (!user) return;
 
     try {
+      // Analytics tracking for like action
+      analytics.trackLike('artwork', artworkId, isLike);
+
       // 推薦システムのフィードバックエンドポイントを使用
       await api.request('/api/v1/recommendations/feedback', {
         method: 'POST',
@@ -111,10 +129,13 @@ export default function RecommendedArtworks() {
     }
   };
 
-  const handleClick = async (artworkId: string) => {
+  const handleClick = async (artworkId: string, clickPosition?: { x: number; y: number }) => {
     if (!user) return;
 
     try {
+      // Analytics tracking for click action
+      analytics.trackClick('artwork', artworkId, clickPosition);
+
       // クリックフィードバックを送信
       await api.request('/api/v1/recommendations/feedback', {
         method: 'POST',
@@ -133,10 +154,13 @@ export default function RecommendedArtworks() {
     }
   };
 
-  const handleView = async (artworkId: string) => {
+  const handleView = async (artworkId: string, duration?: number) => {
     if (!user) return;
 
     try {
+      // Analytics tracking for view action
+      analytics.trackView('artwork', artworkId, duration);
+
       // 閲覧フィードバックを送信
       await api.request('/api/v1/recommendations/feedback', {
         method: 'POST',
@@ -146,7 +170,8 @@ export default function RecommendedArtworks() {
           context: {
             source: 'recommendation',
             algorithm,
-            useAI
+            useAI,
+            duration
           }
         })
       });
@@ -156,9 +181,64 @@ export default function RecommendedArtworks() {
   };
 
   const handleViewArtist = (artistId: string) => {
+    // Analytics tracking for artist view
+    analytics.trackClick('artist', artistId);
     // Navigate to artist profile
     window.open(`/artist/${artistId}`, '_blank');
   };
+
+  // Hover tracking handlers
+  const handleMouseEnter = (artworkId: string) => {
+    hoverTimestamps.current.set(artworkId, Date.now());
+  };
+
+  const handleMouseLeave = (artworkId: string) => {
+    const hoverStart = hoverTimestamps.current.get(artworkId);
+    if (hoverStart) {
+      const hoverTime = Date.now() - hoverStart;
+      analytics.trackHover('artwork', artworkId, hoverTime);
+      hoverTimestamps.current.delete(artworkId);
+    }
+  };
+
+  // Setup intersection observer for view tracking
+  useEffect(() => {
+    if (!user) return;
+
+    intersectionObserver.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const artworkId = entry.target.getAttribute('data-artwork-id');
+          if (!artworkId) return;
+
+          if (entry.isIntersecting) {
+            // Start tracking view time
+            viewTimestamps.current.set(artworkId, Date.now());
+          } else {
+            // End tracking and send analytics
+            const viewStart = viewTimestamps.current.get(artworkId);
+            if (viewStart) {
+              const viewDuration = Date.now() - viewStart;
+              if (viewDuration > 1000) { // Only track views longer than 1 second
+                handleView(artworkId, viewDuration);
+              }
+              viewTimestamps.current.delete(artworkId);
+            }
+          }
+        });
+      },
+      {
+        threshold: 0.5, // Trigger when 50% of the artwork is visible
+        rootMargin: '0px'
+      }
+    );
+
+    return () => {
+      if (intersectionObserver.current) {
+        intersectionObserver.current.disconnect();
+      }
+    };
+  }, [user, algorithm]);
 
   useEffect(() => {
     fetchRecommendations();
@@ -210,7 +290,18 @@ export default function RecommendedArtworks() {
         ) : artworks.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {artworks.map((artwork) => (
-              <div key={artwork.id} className="group relative">
+              <div 
+                key={artwork.id} 
+                className="group relative"
+                data-artwork-id={artwork.id}
+                ref={(el) => {
+                  if (el && intersectionObserver.current) {
+                    intersectionObserver.current.observe(el);
+                  }
+                }}
+                onMouseEnter={() => handleMouseEnter(artwork.id)}
+                onMouseLeave={() => handleMouseLeave(artwork.id)}
+              >
                 <div className="relative overflow-hidden rounded-lg bg-white shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
                   {/* Artwork Image */}
                   <div className="aspect-video relative overflow-hidden bg-gray-100">
@@ -227,7 +318,14 @@ export default function RecommendedArtworks() {
                     {/* Like button overlay */}
                     <div className="absolute top-2 right-2">
                       <button
-                        onClick={() => handleLike(artwork.id, !likedItems.has(artwork.id))}
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const clickPosition = {
+                            x: e.clientX - rect.left,
+                            y: e.clientY - rect.top
+                          };
+                          handleLike(artwork.id, !likedItems.has(artwork.id));
+                        }}
                         className={`p-2 rounded-full transition-colors ${
                           likedItems.has(artwork.id)
                             ? 'bg-red-500 text-white hover:bg-red-600'
@@ -334,8 +432,13 @@ export default function RecommendedArtworks() {
                         size="sm"
                         variant="outline"
                         className="flex-1 text-xs"
-                        onClick={() => {
-                          handleClick(artwork.id);
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const clickPosition = {
+                            x: e.clientX - rect.left,
+                            y: e.clientY - rect.top
+                          };
+                          handleClick(artwork.id, clickPosition);
                           handleViewArtist(artwork.artist.id);
                         }}
                       >
@@ -344,8 +447,13 @@ export default function RecommendedArtworks() {
                       <Button
                         size="sm"
                         className="flex-1 text-xs"
-                        onClick={() => {
-                          handleClick(artwork.id);
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const clickPosition = {
+                            x: e.clientX - rect.left,
+                            y: e.clientY - rect.top
+                          };
+                          handleClick(artwork.id, clickPosition);
                           handleView(artwork.id);
                           // Navigate to artwork detail
                           window.open(`/artwork/${artwork.id}`, '_blank');

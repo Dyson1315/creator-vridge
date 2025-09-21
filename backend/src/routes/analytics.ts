@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { authenticateUser } from '../middleware/auth';
+import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -16,9 +16,9 @@ interface BehaviorLogRequest {
 }
 
 // ユーザー行動ログの記録
-router.post('/behavior', authenticateUser, async (req: Request, res: Response) => {
+router.post('/behavior', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     if (!userId) {
       return res.status(401).json({ error: 'User authentication required' });
     }
@@ -77,9 +77,9 @@ router.post('/behavior', authenticateUser, async (req: Request, res: Response) =
 });
 
 // バッチ行動ログの記録
-router.post('/behavior/batch', authenticateUser, async (req: Request, res: Response) => {
+router.post('/behavior/batch', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     if (!userId) {
       return res.status(401).json({ error: 'User authentication required' });
     }
@@ -128,9 +128,9 @@ router.post('/behavior/batch', authenticateUser, async (req: Request, res: Respo
 });
 
 // ユーザー行動分析データの取得（開発用）
-router.get('/behavior/stats', authenticateUser, async (req: Request, res: Response) => {
+router.get('/behavior/stats', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     if (!userId) {
       return res.status(401).json({ error: 'User authentication required' });
     }
