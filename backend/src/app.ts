@@ -28,6 +28,9 @@ import { auditMiddleware, AuditLogger } from './utils/auditLogger';
 // Load environment variables
 dotenv.config();
 
+// Import port checker
+import { ensurePortAvailable } from './utils/portChecker';
+
 const app = express();
 let prisma: PrismaClient | null = null;
 
@@ -258,10 +261,18 @@ process.on('SIGINT', async () => {
 
 // Start server
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`🚀 CreatorVridge API Server running on port ${PORT}`);
-    console.log(`📚 Environment: ${process.env.NODE_ENV}`);
-    console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  (async () => {
+    // Check if port is available before starting
+    await ensurePortAvailable(Number(PORT), 'CreatorVridge Backend API');
+    
+    app.listen(PORT, () => {
+      console.log(`🚀 CreatorVridge API Server running on port ${PORT}`);
+      console.log(`📚 Environment: ${process.env.NODE_ENV}`);
+      console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+    });
+  })().catch((error) => {
+    console.error('❌ Failed to start server:', error.message);
+    process.exit(1);
   });
 }
 
