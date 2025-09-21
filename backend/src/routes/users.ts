@@ -4,25 +4,14 @@ import multer from 'multer';
 import path from 'path';
 import { authenticateToken } from '../middleware/auth';
 import { validate, profileUpdateSchema } from '../utils/validation';
+import { FileUploadSecurity, createSecureUploadConfig } from '../utils/fileUploadSecurity';
+import { AuditLogger } from '../utils/auditLogger';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// Configure multer for avatar uploads (memory storage for database saving)
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (allowedMimes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only JPEG, PNG, and WebP files are allowed'));
-    }
-  }
-});
+// Configure secure multer for avatar uploads with enhanced security
+const upload = multer(createSecureUploadConfig(5 * 1024 * 1024)); // 5MB limit
 
 // Get user profile by ID
 router.get('/:id/profile', async (req: Request, res: Response) => {
@@ -356,10 +345,11 @@ router.get('/stats', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
-// Upload avatar
+// Upload avatar with enhanced security
 router.post('/avatar', authenticateToken, upload.single('avatar'), async (req: Request, res: Response) => {
   try {
     if (!req.user) {
+      AuditLogger.logSecurity('UNAUTHORIZED_AVATAR_UPLOAD', req, 'WARN');
       return res.status(401).json({
         error: 'Unauthorized',
         message: 'User not authenticated'
@@ -367,14 +357,60 @@ router.post('/avatar', authenticateToken, upload.single('avatar'), async (req: R
     }
 
     if (!req.file) {
+      AuditLogger.logSecurity('AVATAR_UPLOAD_NO_FILE', req, 'WARN', { userId: req.user.userId });
       return res.status(400).json({
         error: 'No file uploaded',
         message: 'Please select an image file'
       });
     }
 
-    // Convert file buffer to base64
-    const avatarData = req.file.buffer.toString('base64');
+    // Enhanced security validation
+    const validation = await FileUploadSecurity.validateFile(req.file);
+    if (!validation.isValid) {
+      AuditLogger.logSecurity('AVATAR_UPLOAD_SECURITY_VIOLATION', req, 'ERROR', {
+        userId: req.user.userId,
+        fileName: req.file.originalname,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype,
+        error: validation.error
+      });
+      
+      return res.status(400).json({
+        error: 'File validation failed',
+        message: validation.error
+      });
+    }
+
+    // Log warnings if any
+    if (validation.warnings && validation.warnings.length > 0) {
+      AuditLogger.logSecurity('AVATAR_UPLOAD_WARNINGS', req, 'WARN', {
+        userId: req.user.userId,
+        warnings: validation.warnings
+      });
+    }
+
+    // Additional dimension validation
+    const dimensionCheck = FileUploadSecurity.validateImageDimensions(req.file.buffer, req.file.mimetype);
+    if (!dimensionCheck.isValid) {
+      AuditLogger.logSecurity('AVATAR_UPLOAD_INVALID_DIMENSIONS', req, 'WARN', {
+        userId: req.user.userId,
+        error: dimensionCheck.error
+      });
+      
+      return res.status(400).json({
+        error: 'Image validation failed',
+        message: dimensionCheck.error
+      });
+    }
+
+    // Sanitize file content
+    const sanitizedBuffer = FileUploadSecurity.sanitizeImageFile(req.file.buffer, req.file.mimetype);
+    
+    // Generate file hash for integrity
+    const fileHash = FileUploadSecurity.createFileHash(sanitizedBuffer);
+    
+    // Convert sanitized file buffer to base64
+    const avatarData = sanitizedBuffer.toString('base64');
     const avatarMimeType = req.file.mimetype;
 
     // Update profile with new avatar data
@@ -393,6 +429,15 @@ router.post('/avatar', authenticateToken, upload.single('avatar'), async (req: R
       }
     });
 
+    // Log successful upload
+    AuditLogger.logDataAccess('AVATAR_UPLOAD', 'profile', req, req.user.userId, true, {
+      fileHash,
+      fileSize: req.file.size,
+      dimensions: dimensionCheck.width && dimensionCheck.height ? 
+        `${dimensionCheck.width}x${dimensionCheck.height}` : 'unknown',
+      originalFileName: req.file.originalname
+    });
+
     res.json({
       message: 'Avatar uploaded successfully',
       data: {
@@ -402,6 +447,12 @@ router.post('/avatar', authenticateToken, upload.single('avatar'), async (req: R
 
   } catch (error) {
     console.error('Avatar upload error:', error);
+    
+    AuditLogger.logSecurity('AVATAR_UPLOAD_ERROR', req, 'ERROR', {
+      userId: req.user?.userId,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    
     res.status(500).json({
       error: 'Avatar upload failed',
       message: 'An error occurred while uploading your avatar'

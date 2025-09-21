@@ -4,6 +4,8 @@ import { authenticateToken } from '../middleware/auth';
 import { validate } from '../utils/validation';
 import { z } from 'zod';
 import { aiRecommendationClient } from '../utils/aiRecommendationClient';
+import { InputValidation, recommendationSchemas } from '../utils/inputValidation';
+import { AuditLogger } from '../utils/auditLogger';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -387,15 +389,22 @@ function generateRecommendationReasons(artist: any, preferences: any) {
 router.get('/artworks', authenticateToken, async (req, res) => {
   try {
     console.log('🎨 Artwork recommendations requested by user:', req.user?.userId);
-    const userId = req.user!.userId;
-    const { limit = 6, includeReason = true } = req.query as any;
-
-    // Check if user is VTuber or AI
-    if (req.user!.userType !== 'VTUBER' && req.user!.userType !== 'AI') {
-      return res.status(403).json({ 
-        error: 'Only VTuber and AI users can get artwork recommendations' 
-      });
-    }
+    
+    // Enhanced input validation
+    const validatedRequest = InputValidation.validateRecommendationRequest(req);
+    const { userId, limit, category, style, useAI, includeReason } = validatedRequest;
+    
+    // Rate limiting check
+    InputValidation.validateRateLimit(userId, 'recommendations/artworks');
+    
+    // Security audit logging
+    AuditLogger.logDataAccess('ARTWORK_RECOMMENDATIONS', 'recommendations', req, userId, true, {
+      limit,
+      category,
+      style,
+      useAI,
+      includeReason
+    });
 
     let artworkRecommendations = [];
     let algorithm = 'preference_based';
@@ -405,7 +414,9 @@ router.get('/artworks', authenticateToken, async (req, res) => {
       console.log('🤖 Attempting AI recommendation API...');
       const aiRecommendations = await aiRecommendationClient.getArtworkRecommendations({
         user_id: userId,
-        limit: parseInt(limit)
+        limit: limit,
+        category,
+        style
       });
 
       // Check if AI API returned empty recommendations
@@ -537,7 +548,7 @@ router.get('/artworks', authenticateToken, async (req, res) => {
               _count: 'desc'
             }
           },
-          take: parseInt(limit)
+          take: limit
         });
 
         artworkRecommendations = popularArtworks.map(artwork => ({
@@ -595,7 +606,7 @@ router.get('/artworks', authenticateToken, async (req, res) => {
               }
             }
           },
-          take: parseInt(limit) * 2 // Get more to allow for scoring
+          take: limit * 2 // Get more to allow for scoring
         });
 
         artworkRecommendations = matchingArtworks
@@ -626,23 +637,42 @@ router.get('/artworks', authenticateToken, async (req, res) => {
             };
           })
           .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
-          .slice(0, parseInt(limit));
+          .slice(0, limit);
         algorithm = 'ai_enhanced_preference_based';
       }
     }
 
     console.log(`✅ Returning ${artworkRecommendations.length} artworks, algorithm: ${algorithm}`);
     
+    // Sanitize output for security
+    const sanitizedRecommendations = InputValidation.sanitizeOutput(artworkRecommendations, [
+      'internalId', 'adminNotes', 'sensitiveData'
+    ]);
+    
     res.json({
-      recommendations: artworkRecommendations,
+      recommendations: sanitizedRecommendations,
       total: artworkRecommendations.length,
       algorithm: algorithm
     });
 
   } catch (error) {
     console.error('Error getting artwork recommendations:', error);
-    res.status(500).json({ 
-      error: 'Failed to get artwork recommendations' 
+    
+    // Log security event if it's a validation error
+    if (error instanceof Error && error.message.includes('validation')) {
+      AuditLogger.logSecurity('RECOMMENDATION_VALIDATION_ERROR', req, 'WARN', {
+        userId: req.user?.userId,
+        error: error.message
+      });
+    }
+    
+    // Don't expose internal error details
+    const message = error instanceof Error && error.message.includes('validation') 
+      ? error.message 
+      : 'Failed to get artwork recommendations';
+    
+    res.status(error instanceof Error && error.message.includes('validation') ? 400 : 500).json({ 
+      error: message
     });
   }
 });
@@ -924,14 +954,19 @@ router.get('/ai/artists', authenticateToken, async (req, res) => {
  */
 router.post('/feedback', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user!.userId;
-    const { artworkId, feedbackType, context } = req.body;
-
-    // Validation
-    const validFeedbackTypes = ['like', 'dislike', 'click', 'view'];
-    if (!validFeedbackTypes.includes(feedbackType)) {
-      return res.status(400).json({ error: 'Invalid feedback type' });
-    }
+    // Enhanced input validation
+    const validatedRequest = InputValidation.validateFeedbackRequest(req);
+    const { userId, artworkId, feedbackType, context } = validatedRequest;
+    
+    // Rate limiting check
+    InputValidation.validateRateLimit(userId, 'recommendations/feedback');
+    
+    // Security audit logging
+    AuditLogger.logDataAccess('FEEDBACK_SUBMISSION', 'recommendations', req, userId, true, {
+      artworkId,
+      feedbackType,
+      hasContext: !!context
+    });
 
     // ローカルデータベースに記録
     if (feedbackType === 'like' || feedbackType === 'dislike') {

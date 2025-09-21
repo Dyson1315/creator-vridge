@@ -1,6 +1,7 @@
 import { Request } from 'express';
 import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { IPAnonymizer } from './ipAnonymizer';
 
 export interface AuditLogEntry {
   timestamp: string;
@@ -42,7 +43,7 @@ export class AuditLogger {
       action,
       userId,
       userEmail,
-      ip: this.getClientIP(req),
+      ip: IPAnonymizer.getAnonymizedIP(req, true),
       userAgent: req.get('User-Agent'),
       endpoint: req.originalUrl,
       method: req.method,
@@ -70,7 +71,7 @@ export class AuditLogger {
       category: 'DATA_ACCESS',
       action,
       userId,
-      ip: this.getClientIP(req),
+      ip: IPAnonymizer.getAnonymizedIP(req, true),
       endpoint: req.originalUrl,
       method: req.method,
       message: `Data access: ${action} on ${resource}`,
@@ -94,7 +95,7 @@ export class AuditLogger {
       level,
       category: 'SECURITY',
       action: eventType,
-      ip: this.getClientIP(req),
+      ip: IPAnonymizer.getAnonymizedIP(req, true),
       userAgent: req.get('User-Agent'),
       endpoint: req.originalUrl,
       method: req.method,
@@ -146,7 +147,7 @@ export class AuditLogger {
       category: 'API_REQUEST',
       action: 'REQUEST',
       userId,
-      ip: this.getClientIP(req),
+      ip: IPAnonymizer.getAnonymizedIP(req, true),
       userAgent: req.get('User-Agent'),
       endpoint: req.originalUrl,
       method: req.method,

@@ -40,6 +40,11 @@ export class AIRecommendationClient {
     const baseURL = process.env.AI_RECOMMENDATION_API_URL || 'http://localhost:8000';
     const apiKey = process.env.AI_RECOMMENDATION_API_KEY;
     
+    // セキュリティ: 本番環境ではAPI KEYを必須とする
+    if (!apiKey && process.env.NODE_ENV === 'production') {
+      throw new Error('AI_RECOMMENDATION_API_KEY is required in production');
+    }
+    
     this.client = axios.create({
       baseURL,
       timeout: 30000, // 30秒タイムアウト
@@ -71,11 +76,12 @@ export class AIRecommendationClient {
       return ArtworkRecommendationResponseSchema.parse(response.data);
     } catch (error: any) {
       if (error.response) {
-        throw new Error(`AI推薦API Error: ${error.response.status} - ${error.response.data?.detail || 'Unknown error'}`);
+        // セキュリティ: 詳細なエラー情報を隠蔽
+        throw new Error(`AI推薦API Error: ${error.response.status}`);
       } else if (error.request) {
         throw new Error('AI推薦APIへの接続に失敗しました');
       } else {
-        throw new Error(`AI推薦API client error: ${error.message}`);
+        throw new Error('AI推薦API client error');
       }
     }
   }
@@ -96,11 +102,12 @@ export class AIRecommendationClient {
       return ArtworkRecommendationResponseSchema.parse(response.data);
     } catch (error: any) {
       if (error.response) {
-        throw new Error(`AI推薦API Error: ${error.response.status} - ${error.response.data?.detail || 'Unknown error'}`);
+        // セキュリティ: 詳細なエラー情報を隠蔽
+        throw new Error(`AI推薦API Error: ${error.response.status}`);
       } else if (error.request) {
         throw new Error('AI推薦APIへの接続に失敗しました');
       } else {
-        throw new Error(`AI推薦API client error: ${error.message}`);
+        throw new Error('AI推薦API client error');
       }
     }
   }
@@ -123,11 +130,12 @@ export class AIRecommendationClient {
       return response.data;
     } catch (error: any) {
       if (error.response) {
-        throw new Error(`AI推薦API Error: ${error.response.status} - ${error.response.data?.detail || 'Unknown error'}`);
+        // セキュリティ: 詳細なエラー情報を隠蔽
+        throw new Error(`AI推薦API Error: ${error.response.status}`);
       } else if (error.request) {
         throw new Error('AI推薦APIへの接続に失敗しました');
       } else {
-        throw new Error(`AI推薦API client error: ${error.message}`);
+        throw new Error('AI推薦API client error');
       }
     }
   }

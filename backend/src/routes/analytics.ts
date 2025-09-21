@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticateToken } from '../middleware/auth';
+import { IPAnonymizer } from '../utils/ipAnonymizer';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -40,8 +41,8 @@ router.post('/behavior', authenticateToken, async (req: Request, res: Response) 
       });
     }
 
-    // IPアドレスの取得（匿名化）
-    const ipAddress = req.ip ? req.ip.replace(/\.\d+$/, '.xxx') : undefined;
+    // IPアドレスの取得（強化された匿名化）
+    const ipAddress = IPAnonymizer.getAnonymizedIP(req, true); // ハッシュ化も有効
 
     const behaviorLog = await prisma.userBehaviorLog.create({
       data: {
@@ -92,8 +93,8 @@ router.post('/behavior/batch', authenticateToken, async (req: Request, res: Resp
       });
     }
 
-    // IPアドレスの取得（匿名化）
-    const ipAddress = req.ip ? req.ip.replace(/\.\d+$/, '.xxx') : undefined;
+    // IPアドレスの取得（強化された匿名化）
+    const ipAddress = IPAnonymizer.getAnonymizedIP(req, true); // ハッシュ化も有効
 
     const behaviorLogs = await prisma.userBehaviorLog.createMany({
       data: logs.map(log => ({

@@ -1,18 +1,25 @@
 import jwt from 'jsonwebtoken';
 import { JWTPayload } from '../types/auth';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const JWT_ISSUER = process.env.JWT_ISSUER || 'creatorvridge-api';
 const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'creatorvridge-app';
 
-// Validate JWT configuration on startup
-if (JWT_SECRET === 'fallback-secret-key' && process.env.NODE_ENV === 'production') {
-  throw new Error('JWT_SECRET must be set in production environment');
+// セキュリティ: JWT_SECRET を必須とする
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
 }
 
-if (JWT_SECRET.length < 32) {
-  console.warn('Warning: JWT_SECRET should be at least 32 characters long for security');
+// セキュリティ: 強力なJWT_SECRETを要求
+if (JWT_SECRET.length < 64) {
+  throw new Error('JWT_SECRET must be at least 64 characters long for security');
+}
+
+// セキュリティ: 弱いシークレットを検出
+const weakSecrets = ['secret', 'password', '123456', 'fallback-secret-key', 'default'];
+if (weakSecrets.some(weak => JWT_SECRET.toLowerCase().includes(weak.toLowerCase()))) {
+  throw new Error('JWT_SECRET contains weak patterns. Use a cryptographically strong secret');
 }
 
 export const generateToken = (payload: Omit<JWTPayload, 'iat' | 'exp'>): string => {
