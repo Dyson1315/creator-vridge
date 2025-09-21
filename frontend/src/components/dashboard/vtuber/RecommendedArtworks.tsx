@@ -53,32 +53,17 @@ export default function RecommendedArtworks() {
 
     setLoading(true);
     try {
-      // AI推薦APIエンドポイントを使用
-      const endpoint = useAI 
-        ? '/api/recommendations/ai/artworks'
-        : '/api/recommendations/artworks';
-      
-      const response = await api.get<RecommendationsResponse>(
-        `${endpoint}?limit=6&useAI=${useAI}&includeReason=true`
+      // 正しい作品推薦エンドポイントを使用
+      const response = await api.request<RecommendationsResponse>(
+        `/api/v1/recommendations/artworks?limit=6&includeReason=true`
       );
       
-      setArtworks(response.data.recommendations);
-      setAlgorithm(response.data.algorithm);
+      setArtworks(response.recommendations || []);
+      setAlgorithm(response.algorithm || 'internal');
     } catch (error) {
       console.error('Failed to fetch recommendations:', error);
-      // AI推薦に失敗した場合は内部アルゴリズムにフォールバック
-      if (useAI) {
-        setUseAI(false);
-        try {
-          const fallbackResponse = await api.get<RecommendationsResponse>(
-            '/api/recommendations/artworks?limit=6&includeReason=true'
-          );
-          setArtworks(fallbackResponse.data.recommendations);
-          setAlgorithm(fallbackResponse.data.algorithm);
-        } catch (fallbackError) {
-          console.error('Fallback recommendation also failed:', fallbackError);
-        }
-      }
+      setArtworks([]);
+      setAlgorithm('error');
     } finally {
       setLoading(false);
     }
@@ -89,15 +74,18 @@ export default function RecommendedArtworks() {
 
     try {
       // 推薦システムのフィードバックエンドポイントを使用
-      await api.post('/api/recommendations/feedback', {
-        artworkId,
-        feedbackType: isLike ? 'like' : 'dislike',
-        context: {
-          source: 'recommendation',
-          algorithm,
-          useAI,
-          viewTime: Date.now()
-        }
+      await api.request('/api/v1/recommendations/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          artworkId,
+          feedbackType: isLike ? 'like' : 'dislike',
+          context: {
+            source: 'recommendation',
+            algorithm,
+            useAI,
+            viewTime: Date.now()
+          }
+        })
       });
 
       // Update local state
@@ -128,14 +116,17 @@ export default function RecommendedArtworks() {
 
     try {
       // クリックフィードバックを送信
-      await api.post('/api/recommendations/feedback', {
-        artworkId,
-        feedbackType: 'click',
-        context: {
-          source: 'recommendation',
-          algorithm,
-          useAI
-        }
+      await api.request('/api/v1/recommendations/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          artworkId,
+          feedbackType: 'click',
+          context: {
+            source: 'recommendation',
+            algorithm,
+            useAI
+          }
+        })
       });
     } catch (error) {
       console.error('Failed to record click feedback:', error);
@@ -147,14 +138,17 @@ export default function RecommendedArtworks() {
 
     try {
       // 閲覧フィードバックを送信
-      await api.post('/api/recommendations/feedback', {
-        artworkId,
-        feedbackType: 'view',
-        context: {
-          source: 'recommendation',
-          algorithm,
-          useAI
-        }
+      await api.request('/api/v1/recommendations/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          artworkId,
+          feedbackType: 'view',
+          context: {
+            source: 'recommendation',
+            algorithm,
+            useAI
+          }
+        })
       });
     } catch (error) {
       console.error('Failed to record view feedback:', error);
@@ -168,7 +162,7 @@ export default function RecommendedArtworks() {
 
   useEffect(() => {
     fetchRecommendations();
-  }, [user, useAI]);
+  }, [user]);
 
   if (!user || user.userType !== 'VTUBER') {
     return null;
@@ -193,25 +187,14 @@ export default function RecommendedArtworks() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <label className="text-sm text-gray-600">AI推薦</label>
-            <input
-              type="checkbox"
-              checked={useAI}
-              onChange={(e) => setUseAI(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-          </div>
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={fetchRecommendations}
-            disabled={loading}
-          >
-            {loading ? '読み込み中...' : '更新'}
-          </Button>
-        </div>
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={fetchRecommendations}
+          disabled={loading}
+        >
+          {loading ? '読み込み中...' : '更新'}
+        </Button>
       </CardHeader>
       <CardContent>
         {loading ? (

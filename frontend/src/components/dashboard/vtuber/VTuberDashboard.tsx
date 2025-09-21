@@ -1,10 +1,21 @@
 'use client';
 
+import React from 'react';
 import StatCard from '@/components/dashboard/common/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import RecommendedArtworks from './RecommendedArtworks';
 import RecommendedArtists from './RecommendedArtists';
+
+// エラー境界コンポーネント
+function SafeComponent({ children, fallback }: { children: React.ReactNode; fallback: React.ReactNode }) {
+  try {
+    return <>{children}</>;
+  } catch (error) {
+    console.error('Component error:', error);
+    return <>{fallback}</>;
+  }
+}
 
 export default function VTuberDashboard() {
   return (
@@ -51,10 +62,36 @@ export default function VTuberDashboard() {
       </div>
 
       {/* おすすめ作品セクション */}
-      <RecommendedArtworks />
+      <SafeComponent 
+        fallback={
+          <Card>
+            <CardHeader>
+              <CardTitle>🎨 おすすめ作品</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-600">おすすめ作品の読み込み中にエラーが発生しました。ページを再読み込みしてください。</p>
+            </CardContent>
+          </Card>
+        }
+      >
+        <RecommendedArtworks />
+      </SafeComponent>
 
       {/* おすすめ絵師セクション */}
-      <RecommendedArtists />
+      <SafeComponent 
+        fallback={
+          <Card>
+            <CardHeader>
+              <CardTitle>🤝 おすすめ絵師</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-600">おすすめ絵師の読み込み中にエラーが発生しました。ページを再読み込みしてください。</p>
+            </CardContent>
+          </Card>
+        }
+      >
+        <RecommendedArtists />
+      </SafeComponent>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 

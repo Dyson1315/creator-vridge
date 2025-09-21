@@ -45,7 +45,7 @@ export default function RecommendedArtists() {
   const [loading, setLoading] = useState(false);
   const [selectedArtist, setSelectedArtist] = useState<RecommendedArtist | null>(null);
   const [showContractModal, setShowContractModal] = useState(false);
-  const [useAI, setUseAI] = useState(true);
+  const useAI = true; // Always use AI recommendations
   const [algorithm, setAlgorithm] = useState<string>('');
   const { user } = useAuthStore();
 
@@ -54,32 +54,17 @@ export default function RecommendedArtists() {
 
     setLoading(true);
     try {
-      // AI推薦APIエンドポイントを使用
-      const endpoint = useAI 
-        ? '/api/recommendations/ai/artists'
-        : '/api/recommendations/artists';
-      
-      const response = await api.get<ArtistRecommendationsResponse>(
-        `${endpoint}?limit=6&useAI=${useAI}&includeReason=true`
+      // 直接内部アルゴリズムを使用（AI推薦の代わりに安定した推薦を提供）
+      const response = await api.request<ArtistRecommendationsResponse>(
+        '/api/v1/recommendations/artists?limit=6&includeReason=true'
       );
       
-      setArtists(response.data.recommendations);
-      setAlgorithm(response.data.algorithm);
+      setArtists(response.recommendations || []);
+      setAlgorithm(response.algorithm || 'internal');
     } catch (error) {
       console.error('Failed to fetch artist recommendations:', error);
-      // AI推薦に失敗した場合は内部アルゴリズムにフォールバック
-      if (useAI) {
-        setUseAI(false);
-        try {
-          const fallbackResponse = await api.get<ArtistRecommendationsResponse>(
-            '/api/recommendations/artists?limit=6&includeReason=true'
-          );
-          setArtists(fallbackResponse.data.recommendations);
-          setAlgorithm(fallbackResponse.data.algorithm);
-        } catch (fallbackError) {
-          console.error('Fallback artist recommendation also failed:', fallbackError);
-        }
-      }
+      setArtists([]);
+      setAlgorithm('error');
     } finally {
       setLoading(false);
     }
@@ -102,7 +87,7 @@ export default function RecommendedArtists() {
 
   useEffect(() => {
     fetchRecommendations();
-  }, [user, useAI]);
+  }, [user]);
 
   if (!user || user.userType !== 'VTUBER') {
     return null;
@@ -129,11 +114,9 @@ export default function RecommendedArtists() {
           <CardTitle className="flex items-center gap-2">
             <span className="text-lg">🤝</span>
             おすすめ絵師
-            {useAI && (
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                AI推薦
-              </span>
-            )}
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              AI推薦
+            </span>
           </CardTitle>
           {algorithm && (
             <p className="text-xs text-gray-500">
@@ -141,25 +124,14 @@ export default function RecommendedArtists() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <label className="text-sm text-gray-600">AI推薦</label>
-            <input
-              type="checkbox"
-              checked={useAI}
-              onChange={(e) => setUseAI(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-          </div>
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={fetchRecommendations}
-            disabled={loading}
-          >
-            {loading ? '読み込み中...' : '更新'}
-          </Button>
-        </div>
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={fetchRecommendations}
+          disabled={loading}
+        >
+          {loading ? '読み込み中...' : '更新'}
+        </Button>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -208,7 +180,7 @@ export default function RecommendedArtists() {
                         {artist.displayName}
                       </h4>
                       <div className="flex items-center gap-2 text-sm text-gray-600">
-                        {artist.rating && (
+                        {artist.rating && typeof artist.rating === 'number' && (
                           <span className="flex items-center gap-1">
                             <span className="text-yellow-400">★</span>
                             {artist.rating.toFixed(1)}

@@ -380,6 +380,259 @@ function generateRecommendationReasons(artist: any, preferences: any) {
   };
 }
 
+/**
+ * GET /api/recommendations/artworks
+ * Get artwork recommendations for VTuber users based on their preferences
+ */
+router.get('/artworks', authenticateToken, async (req, res) => {
+  try {
+    console.log('🎨 Artwork recommendations requested by user:', req.user?.userId);
+    const userId = req.user!.userId;
+    const { limit = 6, includeReason = true } = req.query as any;
+
+    // Check if user is VTuber
+    if (req.user!.userType !== 'VTUBER') {
+      return res.status(403).json({ 
+        error: 'Only VTuber users can get artwork recommendations' 
+      });
+    }
+
+    // Get user's liked artworks to understand preferences
+    const userLikes = await prisma.userLike.findMany({
+      where: {
+        userId,
+        isLike: true
+      },
+      include: {
+        artwork: {
+          include: {
+            artistUser: {
+              include: {
+                profile: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    let artworkRecommendations = [];
+
+    if (userLikes.length === 0) {
+      // If no likes yet, return popular artworks
+      const popularArtworks = await prisma.artwork.findMany({
+        where: {
+          isPublic: true
+        },
+        include: {
+          artistUser: {
+            include: {
+              profile: true
+            }
+          },
+          _count: {
+            select: {
+              userLikes: {
+                where: { isLike: true }
+              }
+            }
+          }
+        },
+        orderBy: {
+          userLikes: {
+            _count: 'desc'
+          }
+        },
+        take: parseInt(limit)
+      });
+
+      artworkRecommendations = popularArtworks.map(artwork => ({
+        id: artwork.id,
+        title: artwork.title,
+        description: artwork.description,
+        imageUrl: artwork.imageUrl,
+        thumbnailUrl: artwork.thumbnailUrl,
+        tags: artwork.tags,
+        style: artwork.style,
+        category: artwork.category,
+        createdAt: artwork.createdAt.toISOString(),
+        likesCount: artwork._count.userLikes,
+        artist: {
+          id: artwork.artistUser.id,
+          displayName: artwork.artistUser.profile?.displayName || 'Unknown Artist',
+          avatarUrl: artwork.artistUser.profile?.avatarUrl,
+          rating: artwork.artistUser.profile?.rating
+        },
+        compatibilityScore: 0.5,
+        reason: ['popular'],
+        reasoning: includeReason ? '人気の作品です' : undefined
+      }));
+
+    } else {
+      // Analyze user preferences
+      const preferences = analyzeUserPreferences(userLikes);
+      
+      // Get artworks matching preferences
+      const preferredStyles = Array.from(preferences.styles.keys()).slice(0, 3);
+      const preferredCategories = Array.from(preferences.categories.keys()).slice(0, 3);
+      const likedArtworkIds = userLikes.map(like => like.artworkId);
+
+      const matchingArtworks = await prisma.artwork.findMany({
+        where: {
+          isPublic: true,
+          id: { notIn: likedArtworkIds }, // Exclude already liked artworks
+          OR: [
+            { style: { in: preferredStyles } },
+            { category: { in: preferredCategories as any[] } }
+          ]
+        },
+        include: {
+          artistUser: {
+            include: {
+              profile: true
+            }
+          },
+          _count: {
+            select: {
+              userLikes: {
+                where: { isLike: true }
+              }
+            }
+          }
+        },
+        take: parseInt(limit) * 2 // Get more to allow for scoring
+      });
+
+      artworkRecommendations = matchingArtworks
+        .map(artwork => {
+          const score = calculateArtworkCompatibilityScore(artwork, preferences);
+          const reasons = generateArtworkRecommendationReasons(artwork, preferences);
+          
+          return {
+            id: artwork.id,
+            title: artwork.title,
+            description: artwork.description,
+            imageUrl: artwork.imageUrl,
+            thumbnailUrl: artwork.thumbnailUrl,
+            tags: artwork.tags,
+            style: artwork.style,
+            category: artwork.category,
+            createdAt: artwork.createdAt.toISOString(),
+            likesCount: artwork._count.userLikes,
+            artist: {
+              id: artwork.artistUser.id,
+              displayName: artwork.artistUser.profile?.displayName || 'Unknown Artist',
+              avatarUrl: artwork.artistUser.profile?.avatarUrl,
+              rating: artwork.artistUser.profile?.rating
+            },
+            compatibilityScore: score,
+            reason: reasons.codes,
+            reasoning: includeReason ? reasons.text : undefined
+          };
+        })
+        .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
+        .slice(0, parseInt(limit));
+    }
+
+    console.log(`✅ Returning ${artworkRecommendations.length} artworks, algorithm: ${userLikes.length > 0 ? 'preference_based' : 'popular_fallback'}`);
+    
+    res.json({
+      recommendations: artworkRecommendations,
+      total: artworkRecommendations.length,
+      algorithm: userLikes.length > 0 ? 'preference_based' : 'popular_fallback'
+    });
+
+  } catch (error) {
+    console.error('Error getting artwork recommendations:', error);
+    res.status(500).json({ 
+      error: 'Failed to get artwork recommendations' 
+    });
+  }
+});
+
+/**
+ * Calculate compatibility score for artwork recommendations
+ */
+function calculateArtworkCompatibilityScore(artwork: any, preferences: any): number {
+  let score = 0;
+  let factors = 0;
+
+  // Style compatibility
+  if (artwork.style && preferences.styles.has(artwork.style)) {
+    score += preferences.styles.get(artwork.style)! * 0.4;
+    factors += 0.4;
+  }
+  
+  // Category compatibility
+  if (preferences.categories.has(artwork.category)) {
+    score += preferences.categories.get(artwork.category)! * 0.4;
+    factors += 0.4;
+  }
+  
+  // Tag compatibility
+  if (artwork.tags && Array.isArray(artwork.tags)) {
+    artwork.tags.forEach((tag: string) => {
+      if (preferences.tags.has(tag)) {
+        score += preferences.tags.get(tag)! * 0.1;
+        factors += 0.1;
+      }
+    });
+  }
+
+  // Popularity boost
+  if (artwork._count?.userLikes > 0) {
+    score += Math.min(artwork._count.userLikes / 20, 0.1);
+    factors += 0.1;
+  }
+
+  // Normalize score
+  return factors > 0 ? Math.min(score / factors, 1.0) : 0.5;
+}
+
+/**
+ * Generate reasons for artwork recommendation
+ */
+function generateArtworkRecommendationReasons(artwork: any, preferences: any) {
+  const reasons: string[] = [];
+  const codes: string[] = [];
+
+  // Check style matches
+  if (artwork.style && preferences.styles.has(artwork.style)) {
+    codes.push('style_match');
+    reasons.push(`好きな画風「${artwork.style}」です`);
+  }
+
+  // Check category matches
+  if (preferences.categories.has(artwork.category)) {
+    codes.push('category_match');
+    reasons.push(`好みのカテゴリ「${artwork.category}」です`);
+  }
+
+  // Check tag matches
+  if (artwork.tags && Array.isArray(artwork.tags)) {
+    const tagMatches = artwork.tags.filter((tag: string) => preferences.tags.has(tag));
+    if (tagMatches.length > 0) {
+      codes.push('tag_match');
+      const tags = tagMatches.slice(0, 2).join('、');
+      reasons.push(`好みのタグ「${tags}」が含まれています`);
+    }
+  }
+
+  // Check popularity
+  if (artwork._count?.userLikes > 10) {
+    codes.push('popular');
+    reasons.push('人気の作品です');
+  }
+
+  return {
+    codes: codes.length > 0 ? codes : ['general_match'],
+    text: reasons.length > 0 ? reasons.join('、') : 'あなたの好みに合うと思われます'
+  };
+}
+
 // ===============================
 // AI推薦システム統合エンドポイント
 // ===============================
