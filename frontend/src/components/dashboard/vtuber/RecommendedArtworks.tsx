@@ -27,16 +27,25 @@ interface Artwork {
   artist: Artist;
 }
 
+interface RecommendationItem extends Artwork {
+  compatibilityScore: number;
+  reason?: string[];
+  reasoning?: string;
+}
+
 interface RecommendationsResponse {
-  recommendations: Artwork[];
+  recommendations: RecommendationItem[];
   total: number;
-  recommendationId: string;
+  algorithm: string;
+  useAI?: boolean;
 }
 
 export default function RecommendedArtworks() {
-  const [artworks, setArtworks] = useState<Artwork[]>([]);
+  const [artworks, setArtworks] = useState<RecommendationItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [likedItems, setLikedItems] = useState<Set<string>>(new Set());
+  const [useAI, setUseAI] = useState(true);
+  const [algorithm, setAlgorithm] = useState<string>('');
   const { user } = useAuthStore();
 
   const fetchRecommendations = async () => {
@@ -44,10 +53,32 @@ export default function RecommendedArtworks() {
 
     setLoading(true);
     try {
-      const response = await api.get<RecommendationsResponse>('/api/v1/artworks/recommendations?limit=6');
+      // AI推薦APIエンドポイントを使用
+      const endpoint = useAI 
+        ? '/api/recommendations/ai/artworks'
+        : '/api/recommendations/artworks';
+      
+      const response = await api.get<RecommendationsResponse>(
+        `${endpoint}?limit=6&useAI=${useAI}&includeReason=true`
+      );
+      
       setArtworks(response.data.recommendations);
+      setAlgorithm(response.data.algorithm);
     } catch (error) {
       console.error('Failed to fetch recommendations:', error);
+      // AI推薦に失敗した場合は内部アルゴリズムにフォールバック
+      if (useAI) {
+        setUseAI(false);
+        try {
+          const fallbackResponse = await api.get<RecommendationsResponse>(
+            '/api/recommendations/artworks?limit=6&includeReason=true'
+          );
+          setArtworks(fallbackResponse.data.recommendations);
+          setAlgorithm(fallbackResponse.data.algorithm);
+        } catch (fallbackError) {
+          console.error('Fallback recommendation also failed:', fallbackError);
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -57,11 +88,14 @@ export default function RecommendedArtworks() {
     if (!user) return;
 
     try {
-      await api.post('/api/v1/artworks/like', {
+      // 推薦システムのフィードバックエンドポイントを使用
+      await api.post('/api/recommendations/feedback', {
         artworkId,
-        isLike,
+        feedbackType: isLike ? 'like' : 'dislike',
         context: {
           source: 'recommendation',
+          algorithm,
+          useAI,
           viewTime: Date.now()
         }
       });
@@ -89,6 +123,44 @@ export default function RecommendedArtworks() {
     }
   };
 
+  const handleClick = async (artworkId: string) => {
+    if (!user) return;
+
+    try {
+      // クリックフィードバックを送信
+      await api.post('/api/recommendations/feedback', {
+        artworkId,
+        feedbackType: 'click',
+        context: {
+          source: 'recommendation',
+          algorithm,
+          useAI
+        }
+      });
+    } catch (error) {
+      console.error('Failed to record click feedback:', error);
+    }
+  };
+
+  const handleView = async (artworkId: string) => {
+    if (!user) return;
+
+    try {
+      // 閲覧フィードバックを送信
+      await api.post('/api/recommendations/feedback', {
+        artworkId,
+        feedbackType: 'view',
+        context: {
+          source: 'recommendation',
+          algorithm,
+          useAI
+        }
+      });
+    } catch (error) {
+      console.error('Failed to record view feedback:', error);
+    }
+  };
+
   const handleViewArtist = (artistId: string) => {
     // Navigate to artist profile
     window.open(`/artist/${artistId}`, '_blank');
@@ -96,7 +168,7 @@ export default function RecommendedArtworks() {
 
   useEffect(() => {
     fetchRecommendations();
-  }, [user]);
+  }, [user, useAI]);
 
   if (!user || user.userType !== 'VTUBER') {
     return null;
@@ -105,18 +177,41 @@ export default function RecommendedArtworks() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <span className="text-lg">🎨</span>
-          おすすめ作品
-        </CardTitle>
-        <Button 
-          variant="outline" 
-          size="sm"
-          onClick={fetchRecommendations}
-          disabled={loading}
-        >
-          {loading ? '読み込み中...' : '更新'}
-        </Button>
+        <div className="flex flex-col gap-1">
+          <CardTitle className="flex items-center gap-2">
+            <span className="text-lg">🎨</span>
+            おすすめ作品
+            {useAI && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                AI推薦
+              </span>
+            )}
+          </CardTitle>
+          {algorithm && (
+            <p className="text-xs text-gray-500">
+              アルゴリズム: {algorithm}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <label className="text-sm text-gray-600">AI推薦</label>
+            <input
+              type="checkbox"
+              checked={useAI}
+              onChange={(e) => setUseAI(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={fetchRecommendations}
+            disabled={loading}
+          >
+            {loading ? '読み込み中...' : '更新'}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -168,6 +263,15 @@ export default function RecommendedArtworks() {
                         {artwork.category}
                       </span>
                     </div>
+
+                    {/* Compatibility Score */}
+                    {artwork.compatibilityScore && (
+                      <div className="absolute top-2 left-2">
+                        <span className="px-2 py-1 bg-green-500/80 text-white text-xs rounded font-medium">
+                          {Math.round(artwork.compatibilityScore * 100)}%
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Artwork Info */}
@@ -180,6 +284,15 @@ export default function RecommendedArtworks() {
                       <p className="text-sm text-gray-600 mb-2 line-clamp-2">
                         {artwork.description}
                       </p>
+                    )}
+
+                    {/* Recommendation Reason */}
+                    {artwork.reasoning && (
+                      <div className="mb-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                        <p className="text-xs text-blue-800">
+                          <span className="font-medium">推薦理由:</span> {artwork.reasoning}
+                        </p>
+                      </div>
                     )}
 
                     {/* Tags */}
@@ -238,14 +351,22 @@ export default function RecommendedArtworks() {
                         size="sm"
                         variant="outline"
                         className="flex-1 text-xs"
-                        onClick={() => handleViewArtist(artwork.artist.id)}
+                        onClick={() => {
+                          handleClick(artwork.id);
+                          handleViewArtist(artwork.artist.id);
+                        }}
                       >
                         絵師を見る
                       </Button>
                       <Button
                         size="sm"
                         className="flex-1 text-xs"
-                        onClick={() => {/* Navigate to artwork detail */}}
+                        onClick={() => {
+                          handleClick(artwork.id);
+                          handleView(artwork.id);
+                          // Navigate to artwork detail
+                          window.open(`/artwork/${artwork.id}`, '_blank');
+                        }}
                       >
                         詳細
                       </Button>

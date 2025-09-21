@@ -37,6 +37,7 @@ interface ArtistRecommendationsResponse {
   recommendations: RecommendedArtist[];
   total: number;
   algorithm: string;
+  useAI?: boolean;
 }
 
 export default function RecommendedArtists() {
@@ -44,6 +45,8 @@ export default function RecommendedArtists() {
   const [loading, setLoading] = useState(false);
   const [selectedArtist, setSelectedArtist] = useState<RecommendedArtist | null>(null);
   const [showContractModal, setShowContractModal] = useState(false);
+  const [useAI, setUseAI] = useState(true);
+  const [algorithm, setAlgorithm] = useState<string>('');
   const { user } = useAuthStore();
 
   const fetchRecommendations = async () => {
@@ -51,12 +54,32 @@ export default function RecommendedArtists() {
 
     setLoading(true);
     try {
+      // AI推薦APIエンドポイントを使用
+      const endpoint = useAI 
+        ? '/api/recommendations/ai/artists'
+        : '/api/recommendations/artists';
+      
       const response = await api.get<ArtistRecommendationsResponse>(
-        '/api/v1/recommendations/artists?limit=6&includeReason=true'
+        `${endpoint}?limit=6&useAI=${useAI}&includeReason=true`
       );
+      
       setArtists(response.data.recommendations);
+      setAlgorithm(response.data.algorithm);
     } catch (error) {
       console.error('Failed to fetch artist recommendations:', error);
+      // AI推薦に失敗した場合は内部アルゴリズムにフォールバック
+      if (useAI) {
+        setUseAI(false);
+        try {
+          const fallbackResponse = await api.get<ArtistRecommendationsResponse>(
+            '/api/recommendations/artists?limit=6&includeReason=true'
+          );
+          setArtists(fallbackResponse.data.recommendations);
+          setAlgorithm(fallbackResponse.data.algorithm);
+        } catch (fallbackError) {
+          console.error('Fallback artist recommendation also failed:', fallbackError);
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -79,7 +102,7 @@ export default function RecommendedArtists() {
 
   useEffect(() => {
     fetchRecommendations();
-  }, [user]);
+  }, [user, useAI]);
 
   if (!user || user.userType !== 'VTUBER') {
     return null;
@@ -102,18 +125,41 @@ export default function RecommendedArtists() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <span className="text-lg">🤝</span>
-          おすすめ絵師
-        </CardTitle>
-        <Button 
-          variant="outline" 
-          size="sm"
-          onClick={fetchRecommendations}
-          disabled={loading}
-        >
-          {loading ? '読み込み中...' : '更新'}
-        </Button>
+        <div className="flex flex-col gap-1">
+          <CardTitle className="flex items-center gap-2">
+            <span className="text-lg">🤝</span>
+            おすすめ絵師
+            {useAI && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                AI推薦
+              </span>
+            )}
+          </CardTitle>
+          {algorithm && (
+            <p className="text-xs text-gray-500">
+              アルゴリズム: {algorithm}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <label className="text-sm text-gray-600">AI推薦</label>
+            <input
+              type="checkbox"
+              checked={useAI}
+              onChange={(e) => setUseAI(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={fetchRecommendations}
+            disabled={loading}
+          >
+            {loading ? '読み込み中...' : '更新'}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {loading ? (
