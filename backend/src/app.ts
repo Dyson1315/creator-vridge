@@ -13,6 +13,7 @@ import artworkRoutes from './routes/artworks';
 import recommendationRoutes from './routes/recommendations';
 import contractRoutes from './routes/contracts';
 import analyticsRoutes from './routes/analytics';
+import aiIntegrationRoutes from './routes/ai-integration';
 
 // Import security middleware
 import { apiRateLimit } from './middleware/rateLimiter';
@@ -189,6 +190,10 @@ app.use('/api/v1/artworks', artworkRoutes);
 app.use('/api/v1/recommendations', recommendationRoutes);
 app.use('/api/v1/contracts', contractRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
+app.use('/api/ai-integration', aiIntegrationRoutes);
+
+// AI API compatibility aliases (for external AI system)
+app.use('/api/recommendations', recommendationRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {

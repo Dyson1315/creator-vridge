@@ -22,12 +22,12 @@ if (weakSecrets.some(weak => JWT_SECRET.toLowerCase().includes(weak.toLowerCase(
   throw new Error('JWT_SECRET contains weak patterns. Use a cryptographically strong secret');
 }
 
-export const generateToken = (payload: Omit<JWTPayload, 'iat' | 'exp'>): string => {
+export const generateToken = (payload: Omit<JWTPayload, 'iat' | 'exp'>, customExpiresIn?: string): string => {
   return jwt.sign(
     payload,
     JWT_SECRET,
     {
-      expiresIn: JWT_EXPIRES_IN,
+      expiresIn: customExpiresIn || JWT_EXPIRES_IN,
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
       algorithm: 'HS256'
