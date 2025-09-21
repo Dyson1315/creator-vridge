@@ -9,6 +9,9 @@ import { PrismaClient } from '@prisma/client';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import matchRoutes from './routes/matches';
+import artworkRoutes from './routes/artworks';
+import recommendationRoutes from './routes/recommendations';
+import contractRoutes from './routes/contracts';
 
 // Import security middleware
 import { apiRateLimit } from './middleware/rateLimiter';
@@ -24,6 +27,9 @@ import { auditMiddleware, AuditLogger } from './utils/auditLogger';
 
 // Load environment variables
 dotenv.config();
+
+// Import port checker
+import { ensurePortAvailable } from './utils/portChecker';
 
 const app = express();
 let prisma: PrismaClient | null = null;
@@ -178,6 +184,9 @@ app.use('/uploads', express.static('uploads'));
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/matches', matchRoutes);
+app.use('/api/v1/artworks', artworkRoutes);
+app.use('/api/v1/recommendations', recommendationRoutes);
+app.use('/api/v1/contracts', contractRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -252,10 +261,18 @@ process.on('SIGINT', async () => {
 
 // Start server
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`🚀 CreatorVridge API Server running on port ${PORT}`);
-    console.log(`📚 Environment: ${process.env.NODE_ENV}`);
-    console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  (async () => {
+    // Check if port is available before starting
+    await ensurePortAvailable(Number(PORT), 'CreatorVridge Backend API');
+    
+    app.listen(PORT, () => {
+      console.log(`🚀 CreatorVridge API Server running on port ${PORT}`);
+      console.log(`📚 Environment: ${process.env.NODE_ENV}`);
+      console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+    });
+  })().catch((error) => {
+    console.error('❌ Failed to start server:', error.message);
+    process.exit(1);
   });
 }
 

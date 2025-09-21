@@ -3,6 +3,8 @@
 import StatCard from '@/components/dashboard/common/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import RecommendedArtworks from './RecommendedArtworks';
+import RecommendedArtists from './RecommendedArtists';
 
 export default function VTuberDashboard() {
   return (
@@ -48,37 +50,13 @@ export default function VTuberDashboard() {
         />
       </div>
 
+      {/* おすすめ作品セクション */}
+      <RecommendedArtworks />
+
+      {/* おすすめ絵師セクション */}
+      <RecommendedArtists />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* マッチング提案 */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <span className="text-lg">🤝</span>
-              おすすめマッチング
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary-200 rounded-full flex items-center justify-center">
-                    <span className="text-sm font-medium">A{i}</span>
-                  </div>
-                  <div>
-                    <div className="font-medium">アーティスト{i}</div>
-                    <div className="text-sm text-calm-600">適合度: 95%</div>
-                  </div>
-                </div>
-                <Button size="sm" variant="outline">
-                  詳細
-                </Button>
-              </div>
-            ))}
-            <Button className="w-full mt-4">
-              もっと見る
-            </Button>
-          </CardContent>
-        </Card>
 
         {/* プロジェクト進捗 */}
         <Card>
