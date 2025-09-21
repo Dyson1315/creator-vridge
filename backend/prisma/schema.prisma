@@ -28,6 +28,7 @@ model User {
   recommendations  RecommendationHistory[] @relation("UserRecommendations")
   vtuberContracts  ContractRequest[] @relation("VTuberContracts")
   artistContracts  ContractRequest[] @relation("ArtistContracts")
+  behaviorLogs     UserBehaviorLog[] @relation("UserBehaviorLogs")
 
   @@map("users")
 }
@@ -307,4 +308,26 @@ enum ContractPriority {
   NORMAL
   HIGH
   URGENT
+}
+
+model UserBehaviorLog {
+  id              String    @id @default(uuid())
+  userId          String    // User who performed the action
+  sessionId       String?   // Browser session ID
+  action          String    // Action type (view, click, scroll, hover, etc.)
+  targetType      String    // What was interacted with (artwork, artist, profile, etc.)
+  targetId        String?   // ID of the target object
+  metadata        Json?     // Additional metadata (scroll depth, time spent, etc.)
+  userAgent       String?   // Browser user agent
+  ipAddress       String?   // IP address (for analytics, anonymized)
+  referrer        String?   // Referrer URL
+  timestamp       DateTime  @default(now())
+  user            User      @relation("UserBehaviorLogs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([action])
+  @@index([targetType])
+  @@index([timestamp])
+  @@map("user_behavior_logs")
 }

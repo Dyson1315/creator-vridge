@@ -12,6 +12,7 @@ import matchRoutes from './routes/matches';
 import artworkRoutes from './routes/artworks';
 import recommendationRoutes from './routes/recommendations';
 import contractRoutes from './routes/contracts';
+import analyticsRoutes from './routes/analytics';
 
 // Import security middleware
 import { apiRateLimit } from './middleware/rateLimiter';
@@ -187,6 +188,7 @@ app.use('/api/v1/matches', matchRoutes);
 app.use('/api/v1/artworks', artworkRoutes);
 app.use('/api/v1/recommendations', recommendationRoutes);
 app.use('/api/v1/contracts', contractRoutes);
+app.use('/api/v1/analytics', analyticsRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
