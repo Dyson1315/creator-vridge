@@ -26,7 +26,7 @@ router.get('/artists', authenticateToken, async (req, res) => {
     const { limit, includeReason } = req.query as any;
 
     // Check if user is VTuber or AI
-    if (req.user!.userType !== 'VTUBER' && req.user!.userType !== 'AI') {
+    if (!['VTUBER', 'AI'].includes(req.user!.userType)) {
       return res.status(403).json({ 
         error: 'Only VTuber and AI users can get artist recommendations' 
       });
@@ -779,7 +779,7 @@ router.get('/ai/artworks', authenticateToken, async (req, res) => {
     const { limit, category, style, useAI = true, includeReason } = req.query as any;
 
     // Check if user is VTuber or AI
-    if (req.user!.userType !== 'VTUBER' && req.user!.userType !== 'AI') {
+    if (!['VTUBER', 'AI'].includes(req.user!.userType)) {
       return res.status(403).json({ 
         error: 'Only VTuber and AI users can get AI artwork recommendations' 
       });
@@ -893,7 +893,7 @@ router.get('/ai/artists', authenticateToken, async (req, res) => {
     const { limit, useAI = true, includeReason } = req.query as any;
 
     // Check if user is VTuber or AI
-    if (req.user!.userType !== 'VTUBER' && req.user!.userType !== 'AI') {
+    if (!['VTUBER', 'AI'].includes(req.user!.userType)) {
       return res.status(403).json({ 
         error: 'Only VTuber and AI users can get AI artist recommendations' 
       });
