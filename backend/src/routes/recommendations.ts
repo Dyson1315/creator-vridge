@@ -406,129 +406,29 @@ router.get('/artworks', authenticateToken, async (req, res) => {
       includeReason
     });
 
-    let artworkRecommendations = [];
-    let algorithm = 'preference_based';
+    // Get recommendations from AI API only
+    console.log('🤖 Getting AI recommendations...');
+    const aiRecommendations = await aiRecommendationClient.getArtworkRecommendations({
+      user_id: userId,
+      limit: limit,
+      category,
+      style
+    });
 
-    try {
-      // Try to get recommendations from AI API first
-      console.log('🤖 Attempting AI recommendation API...');
-      const aiRecommendations = await aiRecommendationClient.getArtworkRecommendations({
-        user_id: userId,
-        limit: limit,
-        category,
-        style
+    // Check if AI API returned empty recommendations
+    if (!aiRecommendations.recommendations || aiRecommendations.recommendations.length === 0) {
+      return res.status(404).json({
+        error: 'No AI recommendations available',
+        message: 'AI推薦システムから推薦が取得できませんでした'
       });
+    }
 
-      // Check if AI API returned empty recommendations
-      if (!aiRecommendations.recommendations || aiRecommendations.recommendations.length === 0) {
-        throw new Error('AI API returned empty recommendations, falling back to internal algorithm');
-      }
-
-      // Convert AI recommendations to our format
-      artworkRecommendations = await Promise.all(
-        aiRecommendations.recommendations.map(async (rec) => {
-          // Find the artwork in our database
-          const artwork = await prisma.artwork.findUnique({
-            where: { id: rec.artwork.id },
-            include: {
-              artistUser: {
-                include: {
-                  profile: true
-                }
-              },
-              _count: {
-                select: {
-                  userLikes: {
-                    where: { isLike: true }
-                  }
-                }
-              }
-            }
-          });
-
-          if (!artwork) {
-            // If artwork not found in our DB, create mock entry based on AI response
-            return {
-              id: rec.artwork.id,
-              title: rec.artwork.title,
-              description: '',
-              imageUrl: rec.artwork.imageUrl || '',
-              thumbnailUrl: rec.artwork.thumbnailUrl || rec.artwork.imageUrl || '',
-              tags: rec.artwork.tags || [],
-              style: rec.artwork.style || '',
-              category: rec.artwork.category,
-              createdAt: rec.artwork.createdAt,
-              likesCount: 0,
-              artist: {
-                id: rec.artwork.artistUserId,
-                displayName: 'AI推薦アーティスト',
-                avatarUrl: null,
-                rating: null
-              },
-              compatibilityScore: rec.score,
-              reason: ['ai_recommendation'],
-              reasoning: includeReason ? rec.reason : undefined
-            };
-          }
-
-          return {
-            id: artwork.id,
-            title: artwork.title,
-            description: artwork.description,
-            imageUrl: artwork.imageUrl,
-            thumbnailUrl: artwork.thumbnailUrl,
-            tags: artwork.tags,
-            style: artwork.style,
-            category: artwork.category,
-            createdAt: artwork.createdAt.toISOString(),
-            likesCount: artwork._count.userLikes,
-            artist: {
-              id: artwork.artistUser.id,
-              displayName: artwork.artistUser.profile?.displayName || 'Unknown Artist',
-              avatarUrl: artwork.artistUser.profile?.avatarUrl,
-              rating: artwork.artistUser.profile?.rating
-            },
-            compatibilityScore: rec.score,
-            reason: ['ai_recommendation'],
-            reasoning: includeReason ? rec.reason : undefined
-          };
-        })
-      );
-
-      algorithm = `AI_POWERED_${aiRecommendations.algorithm}`;
-      console.log('✅ AI recommendations retrieved successfully');
-
-    } catch (aiError) {
-      console.log('⚠️ AI API failed, falling back to internal algorithm:', aiError);
-      
-      // Fallback to internal recommendation logic
-      const userLikes = await prisma.userLike.findMany({
-        where: {
-          userId,
-          isLike: true
-        },
-        include: {
-          artwork: {
-            include: {
-              artistUser: {
-                include: {
-                  profile: true
-                }
-              }
-            }
-          }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
-
-      if (userLikes.length === 0) {
-        // If no likes yet, return popular artworks
-        const popularArtworks = await prisma.artwork.findMany({
-          where: {
-            isPublic: true
-          },
+    // Convert AI recommendations to our format
+    const artworkRecommendations = await Promise.all(
+      aiRecommendations.recommendations.map(async (rec) => {
+        // Find the artwork in our database
+        const artwork = await prisma.artwork.findUnique({
+          where: { id: rec.artwork.id },
           include: {
             artistUser: {
               include: {
@@ -542,16 +442,35 @@ router.get('/artworks', authenticateToken, async (req, res) => {
                 }
               }
             }
-          },
-          orderBy: {
-            userLikes: {
-              _count: 'desc'
-            }
-          },
-          take: limit
+          }
         });
 
-        artworkRecommendations = popularArtworks.map(artwork => ({
+        if (!artwork) {
+          // If artwork not found in our DB, create mock entry based on AI response
+          return {
+            id: rec.artwork.id,
+            title: rec.artwork.title,
+            description: '',
+            imageUrl: rec.artwork.imageUrl || '',
+            thumbnailUrl: rec.artwork.thumbnailUrl || rec.artwork.imageUrl || '',
+            tags: rec.artwork.tags || [],
+            style: rec.artwork.style || '',
+            category: rec.artwork.category,
+            createdAt: rec.artwork.createdAt,
+            likesCount: 0,
+            artist: {
+              id: rec.artwork.artistUserId,
+              displayName: 'AI推薦アーティスト',
+              avatarUrl: null,
+              rating: null
+            },
+            compatibilityScore: rec.score,
+            reason: ['ai_recommendation'],
+            reasoning: includeReason ? rec.reason : undefined
+          };
+        }
+
+        return {
           id: artwork.id,
           title: artwork.title,
           description: artwork.description,
@@ -568,79 +487,15 @@ router.get('/artworks', authenticateToken, async (req, res) => {
             avatarUrl: artwork.artistUser.profile?.avatarUrl,
             rating: artwork.artistUser.profile?.rating
           },
-          compatibilityScore: 0.5,
-          reason: ['popular'],
-          reasoning: includeReason ? '人気の作品です' : undefined
-        }));
-        algorithm = 'popular_fallback';
+          compatibilityScore: rec.score,
+          reason: ['ai_recommendation'],
+          reasoning: includeReason ? rec.reason : undefined
+        };
+      })
+    );
 
-      } else {
-        // Analyze user preferences
-        const preferences = analyzeUserPreferences(userLikes);
-        
-        // Get artworks matching preferences
-        const preferredStyles = Array.from(preferences.styles.keys()).slice(0, 3);
-        const preferredCategories = Array.from(preferences.categories.keys()).slice(0, 3);
-        const likedArtworkIds = userLikes.map(like => like.artworkId);
-
-        const matchingArtworks = await prisma.artwork.findMany({
-          where: {
-            isPublic: true,
-            id: { notIn: likedArtworkIds }, // Exclude already liked artworks
-            OR: [
-              { style: { in: preferredStyles } },
-              { category: { in: preferredCategories as any[] } }
-            ]
-          },
-          include: {
-            artistUser: {
-              include: {
-                profile: true
-              }
-            },
-            _count: {
-              select: {
-                userLikes: {
-                  where: { isLike: true }
-                }
-              }
-            }
-          },
-          take: limit * 2 // Get more to allow for scoring
-        });
-
-        artworkRecommendations = matchingArtworks
-          .map(artwork => {
-            const score = calculateArtworkCompatibilityScore(artwork, preferences);
-            const reasons = generateArtworkRecommendationReasons(artwork, preferences);
-            
-            return {
-              id: artwork.id,
-              title: artwork.title,
-              description: artwork.description,
-              imageUrl: artwork.imageUrl,
-              thumbnailUrl: artwork.thumbnailUrl,
-              tags: artwork.tags,
-              style: artwork.style,
-              category: artwork.category,
-              createdAt: artwork.createdAt.toISOString(),
-              likesCount: artwork._count.userLikes,
-              artist: {
-                id: artwork.artistUser.id,
-                displayName: artwork.artistUser.profile?.displayName || 'Unknown Artist',
-                avatarUrl: artwork.artistUser.profile?.avatarUrl,
-                rating: artwork.artistUser.profile?.rating
-              },
-              compatibilityScore: score,
-              reason: reasons.codes,
-              reasoning: includeReason ? reasons.text : undefined
-            };
-          })
-          .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
-          .slice(0, limit);
-        algorithm = 'ai_enhanced_preference_based';
-      }
-    }
+    const algorithm = `AI_POWERED_${aiRecommendations.algorithm}`;
+    console.log('✅ AI recommendations retrieved successfully');
 
     console.log(`✅ Returning ${artworkRecommendations.length} artworks, algorithm: ${algorithm}`);
     
@@ -656,7 +511,7 @@ router.get('/artworks', authenticateToken, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error getting artwork recommendations:', error);
+    console.error('Error getting AI artwork recommendations:', error);
     
     // Log security event if it's a validation error
     if (error instanceof Error && error.message.includes('validation')) {
@@ -666,96 +521,35 @@ router.get('/artworks', authenticateToken, async (req, res) => {
       });
     }
     
-    // Don't expose internal error details
+    // Handle AI API specific errors
+    if (error instanceof Error && error.message.includes('AI推薦API Error: 401')) {
+      return res.status(503).json({
+        error: 'AI推薦サービスが利用できません',
+        message: 'AI recommendation service is currently unavailable due to authentication issues',
+        details: 'AI APIの認証に問題があります'
+      });
+    }
+    
+    if (error instanceof Error && error.message.includes('AI推薦APIへの接続に失敗')) {
+      return res.status(503).json({
+        error: 'AI推薦サービスに接続できません',
+        message: 'Unable to connect to AI recommendation service',
+        details: 'AI推薦APIサーバーへの接続に失敗しました'
+      });
+    }
+    
+    // Don't expose internal error details for other errors
     const message = error instanceof Error && error.message.includes('validation') 
       ? error.message 
-      : 'Failed to get artwork recommendations';
+      : 'AI推薦システムでエラーが発生しました';
     
     res.status(error instanceof Error && error.message.includes('validation') ? 400 : 500).json({ 
-      error: message
+      error: message,
+      message: 'AI recommendation system error'
     });
   }
 });
 
-/**
- * Calculate compatibility score for artwork recommendations
- */
-function calculateArtworkCompatibilityScore(artwork: any, preferences: any): number {
-  let score = 0;
-  let factors = 0;
-
-  // Style compatibility
-  if (artwork.style && preferences.styles.has(artwork.style)) {
-    score += preferences.styles.get(artwork.style)! * 0.4;
-    factors += 0.4;
-  }
-  
-  // Category compatibility
-  if (preferences.categories.has(artwork.category)) {
-    score += preferences.categories.get(artwork.category)! * 0.4;
-    factors += 0.4;
-  }
-  
-  // Tag compatibility
-  if (artwork.tags && Array.isArray(artwork.tags)) {
-    artwork.tags.forEach((tag: string) => {
-      if (preferences.tags.has(tag)) {
-        score += preferences.tags.get(tag)! * 0.1;
-        factors += 0.1;
-      }
-    });
-  }
-
-  // Popularity boost
-  if (artwork._count?.userLikes > 0) {
-    score += Math.min(artwork._count.userLikes / 20, 0.1);
-    factors += 0.1;
-  }
-
-  // Normalize score
-  return factors > 0 ? Math.min(score / factors, 1.0) : 0.5;
-}
-
-/**
- * Generate reasons for artwork recommendation
- */
-function generateArtworkRecommendationReasons(artwork: any, preferences: any) {
-  const reasons: string[] = [];
-  const codes: string[] = [];
-
-  // Check style matches
-  if (artwork.style && preferences.styles.has(artwork.style)) {
-    codes.push('style_match');
-    reasons.push(`好きな画風「${artwork.style}」です`);
-  }
-
-  // Check category matches
-  if (preferences.categories.has(artwork.category)) {
-    codes.push('category_match');
-    reasons.push(`好みのカテゴリ「${artwork.category}」です`);
-  }
-
-  // Check tag matches
-  if (artwork.tags && Array.isArray(artwork.tags)) {
-    const tagMatches = artwork.tags.filter((tag: string) => preferences.tags.has(tag));
-    if (tagMatches.length > 0) {
-      codes.push('tag_match');
-      const tags = tagMatches.slice(0, 2).join('、');
-      reasons.push(`好みのタグ「${tags}」が含まれています`);
-    }
-  }
-
-  // Check popularity
-  if (artwork._count?.userLikes > 10) {
-    codes.push('popular');
-    reasons.push('人気の作品です');
-  }
-
-  return {
-    codes: codes.length > 0 ? codes : ['general_match'],
-    text: reasons.length > 0 ? reasons.join('、') : 'あなたの好みに合うと思われます'
-  };
-}
 
 // ===============================
 // AI推薦システム統合エンドポイント
