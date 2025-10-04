@@ -1,0 +1,397 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String     @id @default(dbgenerated("gen_random_uuid()"))
+  email            String     @unique
+  passwordHash     String
+  userType         UserType
+  status           UserStatus @default(ACTIVE)
+  emailVerified    Boolean    @default(false)
+  emailVerifiedAt  DateTime?
+  lastLoginAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  artistMatches    Match[]    @relation("ArtistMatches")
+  vtubetMatches    Match[]    @relation("VTuberMatches")
+  receivedMessages Message[]  @relation("ReceivedMessages")
+  sentMessages     Message[]  @relation("SentMessages")
+  profile          Profile?
+  artworks         Artwork[]  @relation("ArtistArtworks")
+  userLikes        UserLike[] @relation("UserLikes")
+  recommendations  RecommendationHistory[] @relation("UserRecommendations")
+  vtuberContracts  ContractRequest[] @relation("VTuberContracts")
+  artistContracts  ContractRequest[] @relation("ArtistContracts")
+  behaviorLogs     UserBehaviorLog[] @relation("UserBehaviorLogs")
+  preferenceProfile UserPreferenceProfile? @relation("UserPreferenceProfile")
+
+  @@map("users")
+}
+
+model Profile {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()"))
+  userId             String             @unique
+  displayName        String?
+  bio                String?
+  avatarUrl          String?
+  portfolioUrls      Json?
+  skills             Json?
+  priceRangeMin      Decimal?
+  priceRangeMax      Decimal?
+  availability       AvailabilityStatus @default(AVAILABLE)
+  timezone           String?
+  preferredCommStyle String?
+  experience         Int?
+  rating             Decimal?
+  totalReviews       Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  avatarData         String?
+  avatarMimeType     String?
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model Match {
+  id           String       @id @default(dbgenerated("gen_random_uuid()"))
+  vtuberUserId String
+  artistUserId String
+  matchScore   Decimal?
+  status       MatchStatus  @default(PENDING)
+  description  String?
+  budget       Decimal?
+  deadline     DateTime?
+  matchedAt    DateTime     @default(now())
+  respondedAt  DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  artistUser   User         @relation("ArtistMatches", fields: [artistUserId], references: [id])
+  vtuberUser   User         @relation("VTuberMatches", fields: [vtuberUserId], references: [id])
+  messages     Message[]
+  transaction  Transaction?
+
+  @@unique([vtuberUserId, artistUserId])
+  @@map("matches")
+}
+
+model Transaction {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()"))
+  matchId               String            @unique
+  amount                Decimal
+  currency              Currency          @default(USD)
+  status                TransactionStatus @default(PENDING)
+  platformFee           Decimal
+  artistAmount          Decimal
+  stripePaymentIntentId String?
+  stripeChargeId        String?
+  refundAmount          Decimal?
+  escrowReleasedAt      DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  match                 Match             @relation(fields: [matchId], references: [id])
+
+  @@map("transactions")
+}
+
+model Message {
+  id            String    @id @default(dbgenerated("gen_random_uuid()"))
+  matchId       String
+  senderId      String
+  receiverId    String
+  content       String
+  messageType   String    @default("text")
+  attachmentUrl String?
+  isRead        Boolean   @default(false)
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  receiver      User      @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  sender        User      @relation("SentMessages", fields: [senderId], references: [id])
+  match         Match     @relation(fields: [matchId], references: [id])
+
+  @@map("messages")
+}
+
+model Artwork {
+  id              String           @id @default(dbgenerated("gen_random_uuid()"))
+  artistUserId    String
+  title           String
+  description     String?
+  imageUrl        String
+  thumbnailUrl    String?
+  tags            Json?            // JSON array of tags
+  aiFeatureVector Json?            // AI feature vector for similarity matching
+  style           String?          // Art style category
+  category        ArtworkCategory  @default(ILLUSTRATION)
+  isPublic        Boolean          @default(true)
+  isPortfolio     Boolean          @default(false)
+  width           Int?
+  height          Int?
+  fileSize        Int?
+  mimeType        String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  artistUser      User             @relation("ArtistArtworks", fields: [artistUserId], references: [id], onDelete: Cascade)
+  userLikes       UserLike[]
+  recommendations RecommendationHistory[]
+  contractRequests ContractRequest[]
+  artworkAnalysis ArtworkAnalysis? @relation("ArtworkAnalysis")
+  precomputedRecs PrecomputedRecommendation[] @relation("PrecomputedRecommendation")
+
+  @@index([artistUserId])
+  @@index([style])
+  @@index([category])
+  @@index([isPublic])
+  @@index([createdAt])
+  @@map("artworks")
+}
+
+model UserLike {
+  id          String      @id @default(dbgenerated("gen_random_uuid()"))
+  userId      String      // VTuber user ID
+  artworkId   String
+  isLike      Boolean     // true = like, false = dislike
+  context     Json?       // Additional context for learning (viewing time, source, etc.)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User        @relation("UserLikes", fields: [userId], references: [id], onDelete: Cascade)
+  artwork     Artwork     @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, artworkId])
+  @@index([userId])
+  @@index([artworkId])
+  @@index([isLike])
+  @@index([createdAt])
+  @@map("user_likes")
+}
+
+model RecommendationHistory {
+  id               String    @id @default(dbgenerated("gen_random_uuid()"))
+  userId           String    // VTuber user ID
+  artworkId        String
+  recommendationId String    // Batch ID for a set of recommendations
+  algorithmVersion String    // Version of the recommendation algorithm
+  score            Decimal   // Recommendation confidence score
+  position         Int       // Position in the recommendation list
+  wasClicked       Boolean   @default(false)
+  wasViewed        Boolean   @default(false)
+  viewDuration     Int?      // Time spent viewing in seconds
+  clickedAt        DateTime?
+  viewedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  user             User      @relation("UserRecommendations", fields: [userId], references: [id], onDelete: Cascade)
+  artwork          Artwork   @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([artworkId])
+  @@index([recommendationId])
+  @@index([algorithmVersion])
+  @@index([wasClicked])
+  @@index([createdAt])
+  @@map("recommendation_history")
+}
+
+model ContractRequest {
+  id              String              @id @default(dbgenerated("gen_random_uuid()"))
+  vtuberUserId    String
+  artistUserId    String
+  artworkId       String?             // Optional: specific artwork that inspired the request
+  title           String
+  description     String
+  budgetMin       Decimal?
+  budgetMax       Decimal?
+  currency        Currency            @default(USD)
+  deadline        DateTime?
+  deliverables    Json?               // JSON array of expected deliverables
+  requirements    Json?               // JSON object with specific requirements
+  status          ContractStatus      @default(PENDING)
+  priority        ContractPriority    @default(NORMAL)
+  sentAt          DateTime            @default(now())
+  viewedAt        DateTime?
+  respondedAt     DateTime?
+  acceptedAt      DateTime?
+  rejectedAt      DateTime?
+  completedAt     DateTime?
+  rejectionReason String?
+  notes           String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  vtuberUser      User                @relation("VTuberContracts", fields: [vtuberUserId], references: [id], onDelete: Cascade)
+  artistUser      User                @relation("ArtistContracts", fields: [artistUserId], references: [id], onDelete: Cascade)
+  artwork         Artwork?            @relation(fields: [artworkId], references: [id])
+
+  @@index([vtuberUserId])
+  @@index([artistUserId])
+  @@index([artworkId])
+  @@index([status])
+  @@index([priority])
+  @@index([deadline])
+  @@index([createdAt])
+  @@map("contract_requests")
+}
+
+enum UserType {
+  VTUBER
+  ARTIST
+  AI
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum AvailabilityStatus {
+  AVAILABLE
+  BUSY
+  UNAVAILABLE
+}
+
+enum MatchStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum Currency {
+  USD
+  JPY
+  EUR
+  KRW
+}
+
+enum ArtworkCategory {
+  ILLUSTRATION
+  CHARACTER_DESIGN
+  LOGO
+  BACKGROUND
+  CONCEPT_ART
+  EMOTE
+  OVERLAY
+  THUMBNAIL
+  ANIMATION
+  LIVE2D
+  VRM
+  OTHER
+}
+
+enum ContractStatus {
+  PENDING
+  VIEWED
+  IN_NEGOTIATION
+  ACCEPTED
+  REJECTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ContractPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model UserBehaviorLog {
+  id              String    @id @default(dbgenerated("gen_random_uuid()"))
+  userId          String    // User who performed the action
+  sessionId       String?   // Browser session ID
+  action          String    // Action type (view, click, scroll, hover, etc.)
+  targetType      String    // What was interacted with (artwork, artist, profile, etc.)
+  targetId        String?   // ID of the target object
+  metadata        Json?     // Additional metadata (scroll depth, time spent, etc.)
+  userAgent       String?   // Browser user agent
+  ipAddress       String?   // IP address (for analytics, anonymized)
+  referrer        String?   // Referrer URL
+  timestamp       DateTime  @default(now())
+  user            User      @relation("UserBehaviorLogs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([action])
+  @@index([targetType])
+  @@index([timestamp])
+  @@map("user_behavior_logs")
+}
+
+// === AI Recommendation System Tables ===
+
+model UserPreferenceProfile {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()"))
+  userId              String    @unique
+  preferenceVector    Json      // 128-dimensional preference vector
+  preferredStyles     Json?     // Style preference scores
+  preferredCategories Json?     // Category preference scores  
+  preferredColors     Json?     // Color preference analysis
+  engagementPatterns  Json?     // Behavior pattern analysis
+  profileConfidence   Float     @default(0.5) // Profile confidence score (0-1)
+  lastUpdated         DateTime  @default(now())
+  createdAt           DateTime  @default(now())
+  user                User      @relation("UserPreferenceProfile", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([lastUpdated])
+  @@index([profileConfidence])
+  @@map("user_preference_profiles")
+}
+
+model ArtworkAnalysis {
+  id               String    @id @default(dbgenerated("gen_random_uuid()"))
+  artworkId        String    @unique
+  featureVector    Json      // 512-dimensional feature vector
+  styleScores      Json      // Style analysis scores
+  colorAnalysis    Json?     // Color analysis results
+  qualityScore     Float?    // AI quality assessment (0-1)
+  analysisVersion  String    @default("v2.1") // Analysis algorithm version
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  artwork          Artwork   @relation("ArtworkAnalysis", fields: [artworkId], references: [id], onDelete: Cascade)
+
+  @@index([artworkId])
+  @@index([qualityScore])
+  @@index([analysisVersion])
+  @@index([createdAt])
+  @@map("artwork_analysis")
+}
+
+model PrecomputedRecommendation {
+  id                String    @id @default(dbgenerated("gen_random_uuid()"))
+  userId            String    // User ID or "popular_fallback" for general recommendations
+  artworkId         String    
+  score             Float     // Recommendation score
+  rankPosition      Int       // Position in recommendation ranking
+  algorithmVersion  String    // Algorithm version used
+  computedAt        DateTime  @default(now())
+  expiresAt         DateTime? // Expiration time for cache
+  isActive          Boolean   @default(true)
+  artwork           Artwork   @relation("PrecomputedRecommendation", fields: [artworkId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, artworkId, algorithmVersion])
+  @@index([userId, isActive, rankPosition])
+  @@index([expiresAt])
+  @@index([algorithmVersion])
+  @@index([computedAt])
+  @@map("precomputed_recommendations")
+}

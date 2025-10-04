@@ -1,0 +1,29 @@
+{
+  "name": "creator-vridge-database",
+  "version": "1.0.0",
+  "description": "CreatorVridge Database Management",
+  "scripts": {
+    "db:check": "node db-check.js",
+    "db:studio": "npx prisma studio",
+    "db:generate": "npx prisma generate",
+    "db:push": "npx prisma db push",
+    "db:seed": "npx prisma db seed",
+    "db:reset": "npx prisma db push --force-reset && npm run db:seed",
+    "db:migrate": "npx prisma migrate dev",
+    "db:backup": "pg_dump -h localhost -U creator_user creator_vridge_db > backup_$(date +%Y%m%d_%H%M%S).sql",
+    "db:psql": "psql -h localhost -U creator_user -d creator_vridge_db"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.2",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^3.0.2"
+  },
+  "devDependencies": {
+    "prisma": "^6.16.2",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  }
+}
