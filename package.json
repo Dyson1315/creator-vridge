@@ -4,31 +4,36 @@
   "description": "VTuber×絵師マッチングプラットフォーム",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "cd backend && npm run dev",
-    "dev:frontend": "cd frontend && npm run dev",
-    "build": "npm run build:backend && npm run build:frontend",
-    "build:backend": "cd backend && npm run build",
-    "build:frontend": "cd frontend && npm run build",
-    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
-    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
-    "start:backend": "cd backend && npm start",
-    "start:frontend": "cd frontend && npm start",
-    "test": "concurrently \"npm run test:backend\" \"npm run test:frontend\"",
-    "test:backend": "cd backend && npm test",
-    "test:frontend": "cd frontend && npm test",
-    "lint": "concurrently \"npm run lint:backend\" \"npm run lint:frontend\"",
-    "lint:backend": "cd backend && npm run lint 2>/dev/null || echo 'Backend linting not configured'",
-    "lint:frontend": "cd frontend && npm run lint",
-    "db:setup": "cd backend && npm run db:generate && npm run db:migrate && npm run db:seed",
-    "db:studio": "cd backend && npm run db:studio"
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:frontend\"",
+    "dev:api": "cd apps/api && npm run dev",
+    "dev:frontend": "cd apps/frontend && npm run dev",
+    "dev:ai": "cd apps/ai-service && npm run dev",
+    "build": "npm run build:api && npm run build:frontend",
+    "build:api": "cd apps/api && npm run build",
+    "build:frontend": "cd apps/frontend && npm run build",
+    "install:all": "npm install && cd apps/api && npm install && cd ../frontend && npm install && cd ../database && npm install && cd ../ai-service && npm install",
+    "start": "concurrently \"npm run start:api\" \"npm run start:frontend\"",
+    "start:api": "cd apps/api && npm start",
+    "start:frontend": "cd apps/frontend && npm start",
+    "test": "concurrently \"npm run test:api\" \"npm run test:frontend\"",
+    "test:api": "cd apps/api && npm test",
+    "test:frontend": "cd apps/frontend && npm test",
+    "lint": "concurrently \"npm run lint:api\" \"npm run lint:frontend\"",
+    "lint:api": "cd apps/api && npm run lint 2>/dev/null || echo 'API linting not configured'",
+    "lint:frontend": "cd apps/frontend && npm run lint",
+    "db:check": "cd apps/database && npm run db:check",
+    "db:studio": "cd apps/database && npm run db:studio",
+    "db:setup": "./scripts/db-quick-start.sh"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "prisma": "^6.16.3"
   },
   "workspaces": [
-    "frontend",
-    "backend"
+    "apps/frontend",
+    "apps/api",
+    "apps/ai-service",
+    "apps/database"
   ],
   "engines": {
     "node": ">=20.0.0",
@@ -44,5 +49,8 @@
     "typescript"
   ],
   "author": "CreatorVridge Team",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/client": "^6.16.3"
+  }
 }
